@@ -1,0 +1,207 @@
+# Capstone Teaching Assistant Backend
+
+Backend API for the Capstone Teaching Assistant project.
+
+The service is a FastAPI application using:
+
+- Python 3.14+
+- uv for dependency and command management
+- PostgreSQL with pgvector
+- RustFS as S3-compatible object storage
+- LangChain with Ollama/Qwen for chat and embeddings
+- Alembic for database migrations
+- pytest, Ruff, ty, and pre-commit for verification
+
+## Project Structure
+
+```text
+app/
+  main.py
+  common/
+    ai.py
+    auth.py
+    config.py
+    database.py
+    db_models.py
+    errors.py
+    object_storage.py
+    text_processing.py
+  modules/
+    conversations/
+    files/
+    messages/
+migrations/
+tests/
+  integration/
+  unit/
+tools/
+  chat_demo.py
+```
+
+Domain modules follow the same shape where applicable:
+
+- `{domain}_router.py` for API endpoints and Swagger/OpenAPI metadata
+- `{domain}_model.py` for Pydantic DTOs
+- `{domain}_service.py` for business logic
+- `{domain}_repository.py` for database and storage persistence
+
+The normal call flow is:
+
+```text
+Router -> Service -> Repository
+Service -> Service
+```
+
+## Local Setup
+
+Install uv if needed:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+From this backend folder:
+
+```bash
+uv sync
+cp .env.example .env
+```
+
+Start PostgreSQL and RustFS:
+
+```bash
+docker compose up -d
+```
+
+Run database migrations:
+
+```bash
+uv run alembic upgrade head
+```
+
+Start Ollama and pull the local MVP models:
+
+```bash
+ollama pull qwen3
+ollama pull qwen3-embedding:0.6b
+```
+
+Run the API:
+
+```bash
+uv run fastapi dev app/main.py
+```
+
+Useful local URLs:
+
+- API: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/docs`
+- OpenAPI JSON: `http://localhost:8000/openapi.json`
+- PostgreSQL: `localhost:5432`
+- RustFS S3 endpoint: `http://localhost:9000`
+
+## Configuration
+
+Local defaults are provided in `.env.example`.
+
+Important settings:
+
+```text
+DATABASE_URL=postgresql+psycopg://capstone:capstone@localhost:5432/capstone
+DEV_SUPERVISOR_ID=11111111-1111-1111-1111-111111111111
+RUSTFS_ENDPOINT_URL=http://localhost:9000
+RUSTFS_BUCKET_NAME=capstone-files
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_CHAT_MODEL=qwen3
+OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
+RAG_TOP_K=5
+CHUNK_SIZE=1200
+CHUNK_OVERLAP=200
+```
+
+The temporary development auth dependency seeds `DEV_SUPERVISOR_ID` automatically when missing. Replace this with real authentication before production use.
+
+## Chat MVP
+
+Implemented MVP workflow:
+
+- Conversation CRUD
+- Global file library CRUD
+- Text file upload to RustFS
+- Text chunking and embedding storage in `document_chunks`
+- Message creation with user and assistant message pair
+- SSE assistant response streaming
+- Retry assistant generation
+- pgvector retrieval over uploaded document chunks and message embeddings
+
+Only UTF-8 text uploads are supported in the MVP. PDF and other document extraction can be added later behind the same file-processing service boundary.
+
+## Streamlit Demo
+
+Run the local chat demo:
+
+```bash
+uv run streamlit run tools/chat_demo.py
+```
+
+The app lets you create/select conversations, upload `.txt` files, attach ready files, submit chat prompts, and stream assistant responses from the FastAPI backend.
+
+## Tests And Checks
+
+Run tests:
+
+```bash
+uv run pytest
+```
+
+Run formatting and lint checks:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+```
+
+Run type checks:
+
+```bash
+uvx ty check
+```
+
+Validate Alembic SQL generation:
+
+```bash
+uv run alembic upgrade head --sql
+```
+
+Run all pre-commit hooks:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+Install hooks locally:
+
+```bash
+uv run pre-commit install
+```
+
+## Development Workflow
+
+Use test-driven development for new features:
+
+1. Read the relevant docs and existing module patterns.
+2. Clarify the expected API/data contract before implementation.
+3. Sketch the function/service shape without filling in the implementation.
+4. Add unit tests for service behavior and integration tests for request workflows.
+5. Implement the feature without weakening the tests.
+6. Run Ruff format, Ruff lint, ty, pytest, and relevant Alembic checks.
+
+Keep tests domain-organized:
+
+```text
+tests/
+  unit/{domain}/
+  integration/{domain}/
+```
+
+Unit tests should focus on service behavior. Integration tests should exercise real FastAPI request/response workflows with test doubles only where external services would otherwise be required.

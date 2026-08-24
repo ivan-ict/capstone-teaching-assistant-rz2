@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format-check
+        name: ruff format check
+        entry: bash -c 'cd capstone-teaching-assistant-rz2-be && uv run ruff format --check .'
+        language: system
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff lint
+        entry: bash -c 'cd capstone-teaching-assistant-rz2-be && uv run ruff check .'
+        language: system
+        pass_filenames: false
+      - id: ty-check
+        name: ty type check
+        entry: bash -c 'cd capstone-teaching-assistant-rz2-be && uvx ty check'
+        language: system
+        pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: bash -c 'cd capstone-teaching-assistant-rz2-be && uv run pytest'
+        language: system
+        pass_filenames: false

@@ -1,0 +1,56 @@
+[project]
+name = "capstone-teaching-assistant-backend"
+version = "0.1.0"
+description = "Backend API for the Capstone Teaching Assistant project."
+authors = [
+    { name = "ivan", email = "124525312+ivan-ict@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "alembic>=1.16.0",
+    "boto3>=1.40.0",
+    "fastapi[standard]>=0.116.0",
+    "langchain>=0.3.0",
+    "langchain-ollama>=1.1.0",
+    "pgvector>=0.4.0",
+    "psycopg[binary,pool]>=3.2.0",
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.10.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "streamlit>=1.62.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.0",
+    "pre-commit>=4.2.0",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.1.0",
+    "ruff>=0.12.0",
+    "ty>=0.0.1a18",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ty.environment]
+python-version = "3.14"
