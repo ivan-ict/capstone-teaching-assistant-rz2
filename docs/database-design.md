@@ -20,6 +20,8 @@ The database contains the following core tables:
 | `message_files`       | Associates Files with Conversations and, where applicable, individual Messages |
 | `document_chunks`     | Parsed document chunks and pgvector embeddings                                 |
 
+All core application tables include a nullable `deleted_at TIMESTAMPTZ` column reserved for future soft-delete support. A `NULL` value means the row is active.
+
 ---
 
 # High-Level Model

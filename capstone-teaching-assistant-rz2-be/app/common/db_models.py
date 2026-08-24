@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.common.database import Base, TimestampMixin
+from app.common.database import Base, SoftDeleteMixin, TimestampMixin
 
 
 class UserRole(enum.StrEnum):
@@ -72,7 +72,7 @@ class User(TimestampMixin, Base):
     files: Mapped[list[File]] = relationship(back_populates="supervisor")
 
 
-class Faculty(Base):
+class Faculty(SoftDeleteMixin, Base):
     __tablename__ = "faculties"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -182,7 +182,7 @@ class File(TimestampMixin, Base):
     )
 
 
-class MessageFile(Base):
+class MessageFile(SoftDeleteMixin, Base):
     __tablename__ = "message_files"
     __table_args__ = (
         UniqueConstraint("conversation_id", "message_id", "file_id"),
@@ -213,7 +213,7 @@ class MessageFile(Base):
     file: Mapped[File] = relationship(back_populates="message_files")
 
 
-class DocumentChunk(Base):
+class DocumentChunk(SoftDeleteMixin, Base):
     __tablename__ = "document_chunks"
     __table_args__ = (UniqueConstraint("file_id", "chunk_index"),)
 

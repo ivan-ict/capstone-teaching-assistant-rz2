@@ -27,7 +27,11 @@ class Base(AsyncAttrs, DeclarativeBase):
     metadata = metadata
 
 
-class TimestampMixin:
+class SoftDeleteMixin:
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TimestampMixin(SoftDeleteMixin):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
