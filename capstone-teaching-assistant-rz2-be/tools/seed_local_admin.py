@@ -1,0 +1,45 @@
+import asyncio
+from uuid import UUID
+
+from sqlalchemy import select
+
+from app.common.config import get_settings
+from app.common.database import AsyncSessionLocal
+from app.common.db_models import AccountStatus, User, UserRole
+from app.common.security import hash_password
+
+LOCAL_ADMIN_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+async def main() -> None:
+    settings = get_settings()
+    if settings.app_environment.lower() != "development":
+        msg = "Local admin seeding is allowed only when APP_ENVIRONMENT=development."
+        raise RuntimeError(msg)
+
+    async with AsyncSessionLocal() as session:
+        existing_user_id = await session.scalar(
+            select(User.id).where(
+                User.username == settings.local_admin_username,
+                User.deleted_at.is_(None),
+            )
+        )
+        if existing_user_id is not None:
+            print(f"Local admin already exists: {settings.local_admin_username}")
+            return
+
+        session.add(
+            User(
+                id=LOCAL_ADMIN_ID,
+                username=settings.local_admin_username,
+                password_hash=hash_password(settings.local_admin_password),
+                role=UserRole.ADMIN,
+                status=AccountStatus.ACTIVE,
+            )
+        )
+        await session.commit()
+        print(f"Created local admin: {settings.local_admin_username}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

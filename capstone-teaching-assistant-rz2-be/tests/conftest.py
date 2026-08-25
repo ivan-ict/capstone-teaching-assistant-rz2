@@ -57,7 +57,12 @@ async def client(session: AsyncSession) -> AsyncIterator[AsyncClient]:
         yield session
 
     async def override_supervisor() -> CurrentUser:
-        return CurrentUser(id=DEV_SUPERVISOR_ID, role="SUPERVISOR")
+        return CurrentUser(
+            id=DEV_SUPERVISOR_ID,
+            username="dev-supervisor",
+            role=UserRole.SUPERVISOR,
+            status=AccountStatus.ACTIVE,
+        )
 
     app.dependency_overrides[get_db_session] = override_session
     app.dependency_overrides[get_current_supervisor] = override_supervisor

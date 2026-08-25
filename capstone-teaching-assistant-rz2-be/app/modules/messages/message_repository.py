@@ -1,6 +1,8 @@
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,7 +28,19 @@ class MessageRepository:
         query = (
             select(Conversation)
             .where(Conversation.id == conversation_id, Conversation.supervisor_id == supervisor_id)
+            .where(Conversation.deleted_at.is_(None))
             .options(selectinload(Conversation.project))
+        )
+        return await self.session.scalar(query)
+
+    async def lock_conversation_for_supervisor(
+        self, conversation_id: UUID, supervisor_id: UUID
+    ) -> Conversation | None:
+        query = (
+            select(Conversation)
+            .where(Conversation.id == conversation_id, Conversation.supervisor_id == supervisor_id)
+            .where(Conversation.deleted_at.is_(None))
+            .with_for_update()
         )
         return await self.session.scalar(query)
 
@@ -36,7 +50,12 @@ class MessageRepository:
         query = (
             select(Message)
             .join(Conversation, Conversation.id == Message.conversation_id)
-            .where(Message.id == message_id, Conversation.supervisor_id == supervisor_id)
+            .where(
+                Message.id == message_id,
+                Message.deleted_at.is_(None),
+                Conversation.supervisor_id == supervisor_id,
+                Conversation.deleted_at.is_(None),
+            )
         )
         return await self.session.scalar(query)
 
@@ -74,12 +93,22 @@ class MessageRepository:
             select(File)
             .where(File.id.in_(file_ids))
             .where(File.supervisor_id == supervisor_id)
+            .where(File.deleted_at.is_(None))
             .order_by(File.original_filename.asc())
         )
         return list(await self.session.scalars(query))
 
-    async def list_conversation_file_ids(self, conversation_id: UUID) -> list[UUID]:
-        query = select(MessageFile.file_id).where(MessageFile.conversation_id == conversation_id)
+    async def list_preselected_file_ids(self, conversation_id: UUID) -> list[UUID]:
+        query = (
+            select(MessageFile.file_id)
+            .join(File, File.id == MessageFile.file_id)
+            .where(
+                MessageFile.conversation_id == conversation_id,
+                MessageFile.message_id.is_(None),
+                MessageFile.deleted_at.is_(None),
+                File.deleted_at.is_(None),
+            )
+        )
         return list(await self.session.scalars(query))
 
     async def associate_files_to_message(
@@ -102,6 +131,7 @@ class MessageRepository:
                 Message.conversation_id == assistant_message.conversation_id,
                 Message.sequence_no < assistant_message.sequence_no,
                 Message.role == MessageRole.USER,
+                Message.deleted_at.is_(None),
             )
             .order_by(Message.sequence_no.desc())
             .limit(1)
@@ -114,6 +144,9 @@ class MessageRepository:
             .where(
                 Message.conversation_id == message.conversation_id,
                 Message.sequence_no < message.sequence_no,
+                Message.status == MessageStatus.COMPLETED,
+                Message.content != "",
+                Message.deleted_at.is_(None),
             )
             .order_by(Message.sequence_no.desc())
             .limit(limit)
@@ -123,7 +156,10 @@ class MessageRepository:
         return messages
 
     async def list_message_file_ids(self, message_id: UUID) -> list[UUID]:
-        query = select(MessageFile.file_id).where(MessageFile.message_id == message_id)
+        query = select(MessageFile.file_id).where(
+            MessageFile.message_id == message_id,
+            MessageFile.deleted_at.is_(None),
+        )
         return list(await self.session.scalars(query))
 
     async def retrieve_chunks(
@@ -136,7 +172,9 @@ class MessageRepository:
             select(DocumentChunk, File)
             .join(File, File.id == DocumentChunk.file_id)
             .where(DocumentChunk.file_id.in_(file_ids))
+            .where(DocumentChunk.deleted_at.is_(None))
             .where(File.processing_status == FileProcessingStatus.READY)
+            .where(File.deleted_at.is_(None))
             .limit(limit)
         )
         bind = self.session.get_bind()
@@ -161,6 +199,7 @@ class MessageRepository:
             .where(Message.status == MessageStatus.COMPLETED)
             .where(Message.content != "")
             .where(Message.embedding.is_not(None))
+            .where(Message.deleted_at.is_(None))
             .limit(limit)
         )
         bind = self.session.get_bind()
@@ -174,11 +213,35 @@ class MessageRepository:
         message.embedding = embedding
         await self.session.flush()
 
+    async def claim_pending_assistant_message(self, message: Message) -> bool:
+        result = cast(
+            CursorResult,
+            await self.session.execute(
+                update(Message)
+                .where(
+                    Message.id == message.id,
+                    Message.status == MessageStatus.PENDING,
+                    Message.deleted_at.is_(None),
+                )
+                .values(status=MessageStatus.GENERATING)
+            ),
+        )
+        if result.rowcount != 1:
+            return False
+        await self.session.refresh(message)
+        return True
+
     async def set_message_state(
-        self, message: Message, content: str, status: MessageStatus
+        self,
+        message: Message,
+        content: str,
+        status: MessageStatus,
+        clear_embedding: bool = False,
     ) -> Message:
         message.content = content
         message.status = status
+        if clear_embedding:
+            message.embedding = None
         await self.session.flush()
         await self.session.refresh(message)
         return message

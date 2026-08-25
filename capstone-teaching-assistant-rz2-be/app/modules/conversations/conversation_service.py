@@ -3,7 +3,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.errors import NotFoundError
+from app.common.db_models import FileProcessingStatus
+from app.common.errors import ApiError, NotFoundError
+from app.common.limits import MAX_FILE_IDS_PER_CHAT_CONTEXT
 from app.modules.conversations.conversation_model import (
     ConversationDetailDTO,
     ConversationDTO,
@@ -119,6 +121,7 @@ class ConversationService:
                             mime_type=message_file.file.mime_type,
                         )
                         for message_file in message.files
+                        if message_file.deleted_at is None and message_file.file.deleted_at is None
                     ],
                     created_at=message.created_at,
                 )
@@ -149,12 +152,31 @@ class ConversationService:
     ) -> ConversationFileAssociationDTO:
         await self._get_conversation(supervisor_id, conversation_id)
         unique_file_ids = list(dict.fromkeys(file_ids))
+        preselected_file_ids = set(await self.repository.list_preselected_file_ids(conversation_id))
+        if len(preselected_file_ids | set(unique_file_ids)) > MAX_FILE_IDS_PER_CHAT_CONTEXT:
+            raise ApiError(
+                "FILE_LIMIT_EXCEEDED",
+                (
+                    f"At most {MAX_FILE_IDS_PER_CHAT_CONTEXT} files can be associated "
+                    "with a conversation."
+                ),
+            )
         files = await self.repository.list_files_by_ids_for_supervisor(
             unique_file_ids,
             supervisor_id,
         )
         if {file.id for file in files} != set(unique_file_ids):
             raise NotFoundError("File not found.")
+        not_ready_files = [
+            file.original_filename
+            for file in files
+            if file.processing_status != FileProcessingStatus.READY
+        ]
+        if not_ready_files:
+            raise ApiError(
+                "FILE_NOT_READY",
+                f"Files are not ready for chat: {', '.join(not_ready_files)}.",
+            )
         files = await self.repository.associate_files_to_conversation(conversation_id, files)
         await self.session.commit()
         return ConversationFileAssociationDTO(

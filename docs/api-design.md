@@ -7,6 +7,11 @@ Base URL:
 ```
 
 Authentication is required for all endpoints except `POST /auth/login`.
+Authenticated requests use the bearer token returned by login:
+
+```text
+Authorization: Bearer <access_token>
+```
 
 ---
 
@@ -32,7 +37,9 @@ Authenticates Admin or Supervisor.
   "id": "user-uuid",
   "username": "rzhou",
   "role": "SUPERVISOR",
-  "status": "ACTIVE"
+  "status": "ACTIVE",
+  "access_token": "jwt-access-token",
+  "token_type": "bearer"
 }
 ```
 
@@ -51,7 +58,7 @@ Authenticates Admin or Supervisor.
 
 ## `POST /auth/logout`
 
-Ends the authenticated session.
+Revokes the current bearer token.
 
 ### Request
 
@@ -1024,4 +1031,3 @@ For an unprojected Conversation, retrieval is limited to Files associated with t
 | POST   | `/messages/{id}/retry`           | Regenerate AI answer           |
 
 **Total: 33 endpoints.**
-

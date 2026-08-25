@@ -5,6 +5,7 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from fastapi import status
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.common.ai import EmbeddingProvider, OllamaEmbeddingProvider
 from app.common.config import Settings, get_settings
@@ -57,6 +58,7 @@ class FileService:
     ) -> FileDTO:
         inferred_mime_type = mime_type or mimetypes.guess_type(original_filename)[0] or "text/plain"
         self._validate_upload_metadata(original_filename, inferred_mime_type)
+        self._validate_upload_size(content)
         if not self._is_supported_text_file(original_filename, inferred_mime_type):
             raise ApiError("UNSUPPORTED_FILE_TYPE", "Only text file uploads are supported.")
         try:
@@ -75,37 +77,61 @@ class FileService:
             f"{self.settings.rustfs_endpoint_url.rstrip('/')}/{self.settings.rustfs_bucket_name}/"
         )
 
-        await asyncio.to_thread(
-            self.storage.upload_bytes,
-            storage_path,
-            content,
-            inferred_mime_type,
-            {"original_filename": original_filename},
-        )
-        file = await self.repository.create(
-            file_id=file_id,
-            supervisor_id=supervisor_id,
-            original_filename=original_filename,
-            stored_filename=stored_filename,
-            storage_base_url=storage_base_url,
-            storage_path=storage_path,
-            mime_type=inferred_mime_type,
-            file_size_bytes=len(content),
-        )
         try:
-            embeddings = await self.embeddings.embed_documents(chunks)
-            await self.repository.add_chunks(file.id, chunks, embeddings)
-            file = await self.repository.set_processing_result(file, FileProcessingStatus.READY)
+            await asyncio.to_thread(
+                self.storage.upload_bytes,
+                storage_path,
+                content,
+                inferred_mime_type,
+                {"original_filename": original_filename},
+            )
         except Exception as exc:
-            file = await self.repository.set_processing_result(
-                file,
-                FileProcessingStatus.FAILED,
-                "Document processing failed.",
+            raise ApiError(
+                "OBJECT_STORAGE_UPLOAD_FAILED",
+                "Object storage upload failed.",
+                status.HTTP_502_BAD_GATEWAY,
+            ) from exc
+        try:
+            file = await self.repository.create(
+                file_id=file_id,
+                supervisor_id=supervisor_id,
+                original_filename=original_filename,
+                stored_filename=stored_filename,
+                storage_base_url=storage_base_url,
+                storage_path=storage_path,
+                mime_type=inferred_mime_type,
+                file_size_bytes=len(content),
             )
             await self.session.commit()
-            raise ApiError("DOCUMENT_PROCESSING_FAILED", "Document processing failed.") from exc
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            try:
+                await asyncio.to_thread(self.storage.delete_object, storage_path)
+            except Exception as cleanup_exc:
+                raise ApiError(
+                    "OBJECT_STORAGE_CLEANUP_FAILED",
+                    "Object storage cleanup failed after database write failure.",
+                    status.HTTP_502_BAD_GATEWAY,
+                ) from cleanup_exc
+            raise ApiError(
+                "DATABASE_WRITE_FAILED",
+                "File metadata could not be persisted.",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            ) from exc
+        try:
+            embeddings = await self.embeddings.embed_documents(chunks)
+            self._validate_embeddings(embeddings, len(chunks))
+            await self.repository.add_chunks(file.id, chunks, embeddings)
+            file = await self.repository.set_processing_result(file, FileProcessingStatus.READY)
+            await self.session.commit()
+        except Exception as exc:
+            file = await self._mark_processing_failed(file_id, supervisor_id)
+            raise ApiError(
+                "DOCUMENT_PROCESSING_FAILED",
+                "Document processing failed.",
+                status.HTTP_502_BAD_GATEWAY,
+            ) from exc
 
-        await self.session.commit()
         return FileDTO.model_validate(file)
 
     async def list_files(
@@ -132,13 +158,28 @@ class FileService:
 
     async def delete_file(self, supervisor_id: UUID, file_id: UUID) -> None:
         file = await self._get_file(supervisor_id, file_id)
-        await asyncio.to_thread(self.storage.delete_object, file.storage_path)
         await self.repository.delete(file)
+        try:
+            await asyncio.to_thread(self.storage.delete_object, file.storage_path)
+        except Exception as exc:
+            await self.session.rollback()
+            raise ApiError(
+                "OBJECT_STORAGE_DELETE_FAILED",
+                "Object storage delete failed.",
+                status.HTTP_502_BAD_GATEWAY,
+            ) from exc
         await self.session.commit()
 
     async def get_download_url(self, supervisor_id: UUID, file_id: UUID) -> str:
         file = await self._get_file(supervisor_id, file_id)
-        return await asyncio.to_thread(self.storage.presigned_download_url, file.storage_path)
+        try:
+            return await asyncio.to_thread(self.storage.presigned_download_url, file.storage_path)
+        except Exception as exc:
+            raise ApiError(
+                "OBJECT_STORAGE_DOWNLOAD_URL_FAILED",
+                "Object storage download URL generation failed.",
+                status.HTTP_502_BAD_GATEWAY,
+            ) from exc
 
     async def _get_file(self, supervisor_id: UUID, file_id: UUID) -> File:
         file = await self.repository.get_for_supervisor(file_id, supervisor_id)
@@ -176,6 +217,51 @@ class FileService:
     def _safe_filename(self, original_filename: str) -> str:
         safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "-", original_filename).strip(".-")
         return safe_filename or "upload.txt"
+
+    def _validate_upload_size(self, content: bytes) -> None:
+        if len(content) > self.settings.max_upload_bytes:
+            raise ApiError(
+                "FILE_TOO_LARGE",
+                f"Upload must be {self.settings.max_upload_bytes} bytes or fewer.",
+                status.HTTP_413_CONTENT_TOO_LARGE,
+            )
+
+    def _validate_embeddings(self, embeddings: list[list[float]], expected_count: int) -> None:
+        if len(embeddings) != expected_count:
+            raise ApiError("INVALID_EMBEDDING", "Embedding count does not match chunk count.")
+        if any(len(embedding) != self.settings.embedding_dimension for embedding in embeddings):
+            raise ApiError("INVALID_EMBEDDING", "Embedding dimension does not match settings.")
+
+    async def _mark_processing_failed(
+        self,
+        file_id: UUID,
+        supervisor_id: UUID,
+    ) -> File:
+        await self.session.rollback()
+        try:
+            file = await self.repository.get_for_supervisor(file_id, supervisor_id)
+            if file is None:
+                raise ApiError(
+                    "DATABASE_WRITE_FAILED",
+                    "File processing status could not be persisted.",
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            file = await self.repository.set_processing_result(
+                file,
+                FileProcessingStatus.FAILED,
+                "Document processing failed.",
+            )
+            await self.session.commit()
+            return file
+        except ApiError:
+            raise
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            raise ApiError(
+                "DATABASE_WRITE_FAILED",
+                "File processing status could not be persisted.",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            ) from exc
 
     def _stored_filename(self, file_id: UUID, original_filename: str) -> str:
         safe_filename = self._safe_filename(original_filename)

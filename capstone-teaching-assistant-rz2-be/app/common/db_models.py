@@ -21,6 +21,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.database import Base, SoftDeleteMixin, TimestampMixin
 
+EMBEDDING_DIMENSION = 1024
+
 
 class UserRole(enum.StrEnum):
     ADMIN = "ADMIN"
@@ -58,9 +60,18 @@ class FileProcessingStatus(enum.StrEnum):
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index(
+            "uq_users_active_username",
+            "username",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    username: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="user_role"), nullable=False)
     status: Mapped[AccountStatus] = mapped_column(
@@ -70,6 +81,17 @@ class User(TimestampMixin, Base):
     projects: Mapped[list[Project]] = relationship(back_populates="supervisor")
     conversations: Mapped[list[Conversation]] = relationship(back_populates="supervisor")
     files: Mapped[list[File]] = relationship(back_populates="supervisor")
+
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+    __table_args__ = (Index("ix_revoked_tokens_expires_at", "expires_at"),)
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
 
 class Faculty(SoftDeleteMixin, Base):
@@ -83,13 +105,22 @@ class Faculty(SoftDeleteMixin, Base):
 
 class SupervisorProfile(TimestampMixin, Base):
     __tablename__ = "supervisor_profiles"
+    __table_args__ = (
+        Index(
+            "uq_supervisor_profiles_active_email",
+            "email",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
     faculty_id: Mapped[UUID] = mapped_column(ForeignKey("faculties.id"), nullable=False)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(32))
     teaching_year: Mapped[int | None] = mapped_column(SmallInteger)
     teaching_semester: Mapped[TeachingSemester | None] = mapped_column(
@@ -99,6 +130,14 @@ class SupervisorProfile(TimestampMixin, Base):
 
 class Project(TimestampMixin, Base):
     __tablename__ = "projects"
+    __table_args__ = (
+        Index(
+            "ix_projects_supervisor_deleted_updated",
+            "supervisor_id",
+            "deleted_at",
+            "updated_at",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     supervisor_id: Mapped[UUID] = mapped_column(
@@ -113,6 +152,15 @@ class Project(TimestampMixin, Base):
 
 class Conversation(TimestampMixin, Base):
     __tablename__ = "conversations"
+    __table_args__ = (
+        Index(
+            "ix_conversations_supervisor_deleted_updated",
+            "supervisor_id",
+            "deleted_at",
+            "updated_at",
+        ),
+        Index("ix_conversations_project_deleted", "project_id", "deleted_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     supervisor_id: Mapped[UUID] = mapped_column(
@@ -133,7 +181,15 @@ class Conversation(TimestampMixin, Base):
 
 class Message(TimestampMixin, Base):
     __tablename__ = "messages"
-    __table_args__ = (UniqueConstraint("conversation_id", "sequence_no"),)
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence_no"),
+        Index(
+            "ix_messages_conversation_deleted_sequence",
+            "conversation_id",
+            "deleted_at",
+            "sequence_no",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     conversation_id: Mapped[UUID] = mapped_column(
@@ -147,7 +203,7 @@ class Message(TimestampMixin, Base):
         Enum(MessageStatus, name="message_status"), nullable=False
     )
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector())
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSION))
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
     files: Mapped[list[MessageFile]] = relationship(
@@ -157,6 +213,9 @@ class Message(TimestampMixin, Base):
 
 class File(TimestampMixin, Base):
     __tablename__ = "files"
+    __table_args__ = (
+        Index("ix_files_supervisor_deleted_created", "supervisor_id", "deleted_at", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     supervisor_id: Mapped[UUID] = mapped_column(
@@ -186,13 +245,15 @@ class MessageFile(SoftDeleteMixin, Base):
     __tablename__ = "message_files"
     __table_args__ = (
         UniqueConstraint("conversation_id", "message_id", "file_id"),
+        Index("ix_message_files_conversation_deleted", "conversation_id", "deleted_at"),
+        Index("ix_message_files_file_deleted", "file_id", "deleted_at"),
         Index(
             "uq_message_files_conversation_file_without_message",
             "conversation_id",
             "file_id",
             unique=True,
-            sqlite_where=text("message_id IS NULL"),
-            postgresql_where=text("message_id IS NULL"),
+            sqlite_where=text("message_id IS NULL AND deleted_at IS NULL"),
+            postgresql_where=text("message_id IS NULL AND deleted_at IS NULL"),
         ),
     )
 
@@ -215,7 +276,10 @@ class MessageFile(SoftDeleteMixin, Base):
 
 class DocumentChunk(SoftDeleteMixin, Base):
     __tablename__ = "document_chunks"
-    __table_args__ = (UniqueConstraint("file_id", "chunk_index"),)
+    __table_args__ = (
+        UniqueConstraint("file_id", "chunk_index"),
+        Index("ix_document_chunks_file_deleted", "file_id", "deleted_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     file_id: Mapped[UUID] = mapped_column(
@@ -224,7 +288,7 @@ class DocumentChunk(SoftDeleteMixin, Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer)
-    embedding: Mapped[list[float]] = mapped_column(Vector(), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSION), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

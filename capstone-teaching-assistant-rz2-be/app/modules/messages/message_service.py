@@ -1,7 +1,9 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from uuid import UUID
 
+from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.ai import (
@@ -13,6 +15,7 @@ from app.common.ai import (
 from app.common.config import Settings, get_settings
 from app.common.db_models import FileProcessingStatus, Message, MessageRole, MessageStatus
 from app.common.errors import ApiError, NotFoundError
+from app.common.limits import MAX_FILE_IDS_PER_CHAT_CONTEXT
 from app.modules.messages.message_mcp import MessageMcpToolRegistry
 from app.modules.messages.message_model import (
     MessageCreateResponseDTO,
@@ -47,7 +50,7 @@ class MessageService:
         content: str,
         file_ids: list[UUID],
     ) -> MessageCreateResponseDTO:
-        conversation = await self.repository.get_conversation_for_supervisor(
+        conversation = await self.repository.lock_conversation_for_supervisor(
             conversation_id, supervisor_id
         )
         if conversation is None:
@@ -55,9 +58,14 @@ class MessageService:
 
         unique_file_ids = list(
             dict.fromkeys(
-                [*await self.repository.list_conversation_file_ids(conversation_id), *file_ids]
+                [*await self.repository.list_preselected_file_ids(conversation_id), *file_ids]
             )
         )
+        if len(unique_file_ids) > MAX_FILE_IDS_PER_CHAT_CONTEXT:
+            raise ApiError(
+                "FILE_LIMIT_EXCEEDED",
+                f"At most {MAX_FILE_IDS_PER_CHAT_CONTEXT} files can be used for one message.",
+            )
         files = await self.repository.list_files_by_ids_for_supervisor(
             unique_file_ids, supervisor_id
         )
@@ -105,24 +113,32 @@ class MessageService:
         self, supervisor_id: UUID, message_id: UUID
     ) -> AsyncIterator[str]:
         assistant_message = await self._get_assistant_message(supervisor_id, message_id)
-        yield self._sse("start", {"message_id": str(assistant_message.id)})
-
-        collected_tokens: list[str] = []
-        try:
-            await self.repository.set_message_state(
-                assistant_message, assistant_message.content, MessageStatus.GENERATING
+        self._ensure_pending_assistant_message(assistant_message)
+        if not await self.repository.claim_pending_assistant_message(assistant_message):
+            yield self._sse(
+                "error",
+                {
+                    "code": "INVALID_MESSAGE_STATUS",
+                    "message": "Only pending Assistant messages can be streamed.",
+                },
             )
-            await self.session.commit()
-
+            return
+        collected_tokens: list[str] = []
+        generation_finished = False
+        await self.session.commit()
+        try:
+            yield self._sse("start", {"message_id": str(assistant_message.id)})
             user_message = await self.repository.previous_user_message(assistant_message)
             if user_message is None:
                 raise ApiError("CHAT_CONTEXT_MISSING", "Assistant message has no user prompt.")
 
             query_embedding = await self.embeddings.embed_query(user_message.content)
+            self._validate_embedding(query_embedding)
             await self.repository.set_message_embedding(user_message, query_embedding)
             context = await self._retrieve_context(user_message, query_embedding)
             relevant_messages = await self._retrieve_relevant_messages(
-                assistant_message, query_embedding
+                user_message,
+                query_embedding,
             )
             history = await self.repository.list_history_before(assistant_message)
             project_instructions = await self._project_instructions(
@@ -148,7 +164,10 @@ class MessageService:
                 yield self._sse("token", {"delta": token})
 
             assistant_content = "".join(collected_tokens)
+            if not assistant_content.strip():
+                raise ApiError("EMPTY_AI_RESPONSE", "AI response was empty.")
             assistant_embedding = (await self.embeddings.embed_documents([assistant_content]))[0]
+            self._validate_embedding(assistant_embedding)
             await self.repository.set_message_embedding(assistant_message, assistant_embedding)
             await self.repository.set_message_state(
                 assistant_message,
@@ -156,6 +175,7 @@ class MessageService:
                 MessageStatus.COMPLETED,
             )
             await self.session.commit()
+            generation_finished = True
             yield self._sse(
                 "complete",
                 {
@@ -163,12 +183,16 @@ class MessageService:
                     "status": MessageStatus.COMPLETED.value,
                 },
             )
+        except asyncio.CancelledError:
+            if not generation_finished:
+                await self._fail_assistant_generation(assistant_message, collected_tokens)
+            raise
+        except GeneratorExit:
+            if not generation_finished:
+                await self._fail_assistant_generation(assistant_message, collected_tokens)
+            raise
         except Exception:
-            await self.session.rollback()
-            await self.repository.set_message_state(
-                assistant_message, "".join(collected_tokens), MessageStatus.FAILED
-            )
-            await self.session.commit()
+            await self._fail_assistant_generation(assistant_message, collected_tokens)
             yield self._sse(
                 "error",
                 {
@@ -181,8 +205,12 @@ class MessageService:
         self, supervisor_id: UUID, message_id: UUID
     ) -> MessageRetryResponseDTO:
         assistant_message = await self._get_assistant_message(supervisor_id, message_id)
+        self._ensure_retryable_assistant_message(assistant_message)
         assistant_message = await self.repository.set_message_state(
-            assistant_message, "", MessageStatus.PENDING
+            assistant_message,
+            "",
+            MessageStatus.PENDING,
+            clear_embedding=True,
         )
         await self.session.commit()
         return MessageRetryResponseDTO(
@@ -192,6 +220,12 @@ class MessageService:
 
     async def ensure_assistant_message(self, supervisor_id: UUID, message_id: UUID) -> None:
         await self._get_assistant_message(supervisor_id, message_id)
+
+    async def ensure_streamable_assistant_message(
+        self, supervisor_id: UUID, message_id: UUID
+    ) -> None:
+        assistant_message = await self._get_assistant_message(supervisor_id, message_id)
+        self._ensure_pending_assistant_message(assistant_message)
 
     async def _retrieve_context(
         self, user_message: Message, query_embedding: list[float]
@@ -214,11 +248,11 @@ class MessageService:
         ]
 
     async def _retrieve_relevant_messages(
-        self, assistant_message: Message, query_embedding: list[float]
+        self, user_message: Message, query_embedding: list[float]
     ) -> list[Message]:
         return await self.repository.retrieve_messages(
-            assistant_message.conversation_id,
-            assistant_message.sequence_no,
+            user_message.conversation_id,
+            user_message.sequence_no,
             query_embedding,
             self.settings.rag_top_k,
         )
@@ -240,6 +274,22 @@ class MessageService:
                 "INVALID_MESSAGE_ROLE", "Only Assistant messages can be streamed or retried."
             )
         return message
+
+    def _ensure_pending_assistant_message(self, message: Message) -> None:
+        if message.status != MessageStatus.PENDING:
+            raise ApiError(
+                "INVALID_MESSAGE_STATUS",
+                "Only pending Assistant messages can be streamed.",
+                status.HTTP_409_CONFLICT,
+            )
+
+    def _ensure_retryable_assistant_message(self, message: Message) -> None:
+        if message.status == MessageStatus.GENERATING:
+            raise ApiError(
+                "INVALID_MESSAGE_STATUS",
+                "Assistant messages cannot be retried while generation is in progress.",
+                status.HTTP_409_CONFLICT,
+            )
 
     def _build_system_prompt(
         self,
@@ -282,3 +332,19 @@ class MessageService:
 
     def _sse(self, event: str, data: dict[str, object]) -> str:
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+    def _validate_embedding(self, embedding: list[float]) -> None:
+        if len(embedding) != self.settings.embedding_dimension:
+            raise ApiError("INVALID_EMBEDDING", "Embedding dimension does not match settings.")
+
+    async def _fail_assistant_generation(
+        self, assistant_message: Message, collected_tokens: list[str]
+    ) -> None:
+        await self.session.rollback()
+        await self.repository.set_message_state(
+            assistant_message,
+            "".join(collected_tokens),
+            MessageStatus.FAILED,
+            clear_embedding=True,
+        )
+        await self.session.commit()

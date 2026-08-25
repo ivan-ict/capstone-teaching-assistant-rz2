@@ -27,9 +27,14 @@ app/
     object_storage.py
     text_processing.py
   modules/
+    account/
+    admin/supervisors/
+    auth/
     conversations/
+    faculties/
     files/
     messages/
+    projects/
 migrations/
 tests/
   integration/
@@ -79,6 +84,12 @@ Run database migrations:
 uv run alembic upgrade head
 ```
 
+Seed a local admin account for development:
+
+```bash
+uv run python tools/seed_local_admin.py
+```
+
 Start Ollama and pull the local MVP models:
 
 ```bash
@@ -108,18 +119,28 @@ Important settings:
 
 ```text
 DATABASE_URL=postgresql+psycopg://capstone:capstone@localhost:5432/capstone
-DEV_SUPERVISOR_ID=11111111-1111-1111-1111-111111111111
 RUSTFS_ENDPOINT_URL=http://localhost:9000
 RUSTFS_BUCKET_NAME=capstone-files
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_CHAT_MODEL=qwen3
 OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_DIMENSION=1024
 RAG_TOP_K=5
 CHUNK_SIZE=1200
 CHUNK_OVERLAP=200
+MAX_UPLOAD_BYTES=10485760
+CORS_ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:8501"]
 ```
 
-The temporary development auth dependency seeds `DEV_SUPERVISOR_ID` automatically when missing. Replace this with real authentication before production use.
+The migrations seed reference Faculty data. The local admin seed script creates:
+
+```text
+username=admin
+password=AdminPassword123!
+```
+
+Authenticated API requests must use the bearer token returned by `POST /api/v1/auth/login`.
+`POST /api/v1/auth/logout` revokes the current token.
 
 ## Chat MVP
 
@@ -145,6 +166,7 @@ uv run streamlit run tools/chat_demo.py
 ```
 
 The app lets you create/select conversations, upload `.txt` files, attach ready files, submit chat prompts, and stream assistant responses from the FastAPI backend.
+Sign in with a Supervisor account. Use the seeded admin account to create a Supervisor first through `/docs` if your local database does not have one yet.
 
 ## Tests And Checks
 

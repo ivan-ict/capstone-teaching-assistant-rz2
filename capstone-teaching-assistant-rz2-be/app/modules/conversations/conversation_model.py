@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.common.db_models import FileProcessingStatus, MessageRole, MessageStatus
+from app.common.limits import MAX_FILE_IDS_PER_CHAT_CONTEXT
 
 
 class ProjectSummaryDTO(BaseModel):
@@ -12,6 +13,8 @@ class ProjectSummaryDTO(BaseModel):
 
 
 class ConversationCreateDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     project_id: UUID | None = None
 
 
@@ -38,6 +41,8 @@ class ConversationDetailDTO(BaseModel):
 
 
 class ConversationRenameDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     title: str = Field(min_length=1, max_length=255)
 
 
@@ -48,7 +53,9 @@ class ConversationRenameResponseDTO(BaseModel):
 
 
 class ConversationMoveProjectDTO(BaseModel):
-    project_id: UUID | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: UUID | None
 
 
 class ConversationMoveProjectResponseDTO(BaseModel):
@@ -90,7 +97,9 @@ class ConversationFileListDTO(BaseModel):
 
 
 class ConversationFileAssociateDTO(BaseModel):
-    file_ids: list[UUID] = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    file_ids: list[UUID] = Field(min_length=1, max_length=MAX_FILE_IDS_PER_CHAT_CONTEXT)
 
 
 class ConversationFileSummaryDTO(BaseModel):

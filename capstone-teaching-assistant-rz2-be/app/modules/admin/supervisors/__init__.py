@@ -1,0 +1,1 @@
+"""Admin supervisor management module."""

@@ -1,9 +1,10 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.db_models import DocumentChunk, File, FileProcessingStatus
+from app.common.db_models import DocumentChunk, File, FileProcessingStatus, MessageFile
 
 
 class FileRepository:
@@ -39,7 +40,11 @@ class FileRepository:
         return file
 
     async def get_for_supervisor(self, file_id: UUID, supervisor_id: UUID) -> File | None:
-        query = select(File).where(File.id == file_id, File.supervisor_id == supervisor_id)
+        query = select(File).where(
+            File.id == file_id,
+            File.supervisor_id == supervisor_id,
+            File.deleted_at.is_(None),
+        )
         return await self.session.scalar(query)
 
     async def list_for_supervisor(
@@ -50,7 +55,7 @@ class FileRepository:
         page: int,
         page_size: int,
     ) -> tuple[list[File], int]:
-        filters = [File.supervisor_id == supervisor_id]
+        filters = [File.supervisor_id == supervisor_id, File.deleted_at.is_(None)]
         if search:
             filters.append(File.original_filename.ilike(f"%{search}%"))
         if processing_status:
@@ -96,5 +101,22 @@ class FileRepository:
         return file
 
     async def delete(self, file: File) -> None:
-        await self.session.delete(file)
+        deleted_at = datetime.now(UTC)
+        file.deleted_at = deleted_at
+        await self.session.execute(
+            update(DocumentChunk)
+            .where(
+                DocumentChunk.file_id == file.id,
+                DocumentChunk.deleted_at.is_(None),
+            )
+            .values(deleted_at=deleted_at)
+        )
+        await self.session.execute(
+            update(MessageFile)
+            .where(
+                MessageFile.file_id == file.id,
+                MessageFile.deleted_at.is_(None),
+            )
+            .values(deleted_at=deleted_at)
+        )
         await self.session.flush()

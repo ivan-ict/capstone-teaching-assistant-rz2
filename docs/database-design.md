@@ -196,7 +196,7 @@ Stores authentication and authorization information.
 | Column          | Type             | Null | Description             |
 | --------------- | ---------------- | ---: | ----------------------- |
 | `id`            | UUID             |   No | Primary key             |
-| `username`      | VARCHAR          |   No | Unique login username   |
+| `username`      | VARCHAR          |   No | Unique among active users |
 | `password_hash` | TEXT             |   No | Secure password hash    |
 | `role`          | `user_role`      |   No | `ADMIN` or `SUPERVISOR` |
 | `status`        | `account_status` |   No | `ACTIVE` or `INACTIVE`  |
@@ -233,7 +233,7 @@ Stores Supervisor-specific profile information.
 | `faculty_id`        | UUID                |   No | FK → `faculties.id`     |
 | `first_name`        | VARCHAR             |   No | First name              |
 | `last_name`         | VARCHAR             |   No | Last name               |
-| `email`             | VARCHAR             |   No | Email address           |
+| `email`             | VARCHAR             |   No | Email address, unique among active profiles |
 | `phone`             | VARCHAR             |  Yes | Phone number            |
 | `teaching_year`     | SMALLINT            |  Yes | Teaching year           |
 | `teaching_semester` | `teaching_semester` |  Yes | Teaching semester       |
@@ -298,7 +298,7 @@ Stores individual chat Messages.
 | `content`         | TEXT             |   No | Message body             |
 | `status`          | `message_status` |   No | Message generation state |
 | `sequence_no`     | INTEGER          |   No | Position in Conversation |
-| `embedding`       | VECTOR(N)        |  Yes | pgvector embedding for semantic message search |
+| `embedding`       | VECTOR(1024)     |  Yes | pgvector embedding for semantic message search |
 | `created_at`      | TIMESTAMPTZ      |   No | Creation timestamp       |
 | `updated_at`      | TIMESTAMPTZ      |   No | Last update timestamp    |
 
@@ -486,7 +486,7 @@ Stores document content processed for RAG.
 | `chunk_index` | INTEGER     |   No | Chunk position                     |
 | `content`     | TEXT        |   No | Extracted chunk text               |
 | `page_number` | INTEGER     |  Yes | Source page number where available |
-| `embedding`   | VECTOR(N)   |   No | pgvector embedding                 |
+| `embedding`   | VECTOR(1024) |   No | pgvector embedding                 |
 | `created_at`  | TIMESTAMPTZ |   No | Creation timestamp                 |
 
 Recommended constraint:
@@ -495,12 +495,10 @@ Recommended constraint:
 UNIQUE(file_id, chunk_index)
 ```
 
-The vector dimension depends on the selected embedding model.
-
-Example only:
+The vector dimension is fixed to the local MVP embedding model configuration:
 
 ```sql
-embedding VECTOR(768)
+embedding VECTOR(1024)
 ```
 
 ---

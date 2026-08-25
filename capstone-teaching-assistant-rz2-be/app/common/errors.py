@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -5,11 +6,25 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.exceptions import HTTPException
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorDetailDTO(BaseModel):
     field: str
     message: str
+
+
+class ErrorDTO(BaseModel):
+    code: str
+    message: str
+    details: list[ErrorDetailDTO] | None = None
+
+
+class ErrorResponseDTO(BaseModel):
+    error: ErrorDTO
 
 
 class ApiError(Exception):
@@ -57,7 +72,45 @@ def register_exception_handlers(app: FastAPI) -> None:
         api_error = ApiError(
             "VALIDATION_ERROR",
             "Request validation failed.",
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             details,
         )
         return JSONResponse(status_code=api_error.http_status, content=_error_payload(api_error))
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+        api_error = _http_exception_error(exc)
+        return JSONResponse(
+            status_code=api_error.http_status,
+            content=_error_payload(api_error),
+            headers=exc.headers,
+        )
+
+    @app.exception_handler(SQLAlchemyError)
+    async def database_error_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
+        logger.exception("Database error while handling API request.", exc_info=exc)
+        api_error = ApiError(
+            "DATABASE_ERROR",
+            "Database operation failed.",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        return JSONResponse(status_code=api_error.http_status, content=_error_payload(api_error))
+
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("Unhandled error while handling API request.", exc_info=exc)
+        api_error = ApiError(
+            "INTERNAL_SERVER_ERROR",
+            "Internal server error.",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        return JSONResponse(status_code=api_error.http_status, content=_error_payload(api_error))
+
+
+def _http_exception_error(exc: HTTPException) -> ApiError:
+    message = exc.detail if isinstance(exc.detail, str) else "HTTP request failed."
+    if exc.status_code == status.HTTP_404_NOT_FOUND:
+        return ApiError("RESOURCE_NOT_FOUND", message, exc.status_code)
+    if exc.status_code == status.HTTP_405_METHOD_NOT_ALLOWED:
+        return ApiError("METHOD_NOT_ALLOWED", message, exc.status_code)
+    return ApiError("HTTP_ERROR", message, exc.status_code)

@@ -38,14 +38,23 @@ async def create_message(
     )
 
 
-@message_router.get("/messages/{message_id}/stream")
+@message_router.get(
+    "/messages/{message_id}/stream",
+    response_class=StreamingResponse,
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Server-sent event stream.",
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+        }
+    },
+)
 async def stream_message(
     message_id: UUID,
     current_user: CurrentSupervisorDependency,
     session: DatabaseSessionDependency,
 ):
     service = MessageService(session)
-    await service.ensure_assistant_message(current_user.id, message_id)
+    await service.ensure_streamable_assistant_message(current_user.id, message_id)
     stream = service.stream_assistant_response(current_user.id, message_id)
     return StreamingResponse(stream, media_type="text/event-stream")
 

@@ -9,7 +9,7 @@ services:
         ports:
             - "5432:5432"
         volumes:
-            - postgres-data:/var/lib/postgresql
+            - postgres-data:/var/lib/postgresql/data
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U capstone -d capstone"]
             interval: 5s
@@ -28,24 +28,26 @@ services:
             - "9001:9001"
         volumes:
             - rustfs-data:/data
-        healthcheck:
-            test:
-                ["CMD-SHELL", "curl -f http://localhost:9000/health || exit 1"]
-            interval: 10s
-            timeout: 5s
-            retries: 12
 
     rustfs-init:
         image: minio/mc:latest
         depends_on:
             rustfs:
-                condition: service_healthy
+                condition: service_started
         entrypoint:
             - /bin/sh
-            - -c
+            - -ec
             - |
-                mc alias set rustfs http://rustfs:9000 capstone capstone-secret
-                mc mb --ignore-existing rustfs/capstone-files
+                for attempt in $(seq 1 30); do
+                    if mc alias set rustfs http://rustfs:9000 capstone capstone-secret \
+                        && mc mb --ignore-existing rustfs/capstone-files; then
+                        exit 0
+                    fi
+                    echo "Waiting for RustFS bucket initialization: attempt $${attempt}/30"
+                    sleep 2
+                done
+                echo "RustFS bucket initialization failed" >&2
+                exit 1
         restart: "no"
 
 volumes:
