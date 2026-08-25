@@ -1,17 +1,26 @@
 import asyncio
+import os
+import sys
+from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+os.chdir(BACKEND_ROOT)
 
-from app.common.config import get_settings
-from app.common.database import AsyncSessionLocal
-from app.common.db_models import AccountStatus, User, UserRole
-from app.common.security import hash_password
 
 LOCAL_ADMIN_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 async def main() -> None:
+    from sqlalchemy import select
+
+    from app.common.config import get_settings
+    from app.common.database import AsyncSessionLocal
+    from app.common.db_models import AccountStatus, User, UserRole
+    from app.common.security import hash_password
+
     settings = get_settings()
     if settings.app_environment.lower() != "development":
         msg = "Local admin seeding is allowed only when APP_ENVIRONMENT=development."

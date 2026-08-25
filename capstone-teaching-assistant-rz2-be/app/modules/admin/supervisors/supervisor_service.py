@@ -172,14 +172,32 @@ class SupervisorService:
 
     def _duplicate_supervisor_error(self, exc: IntegrityError) -> ApiError:
         message = str(exc.orig).lower()
-        if "username" in message:
+        constraint_name = self._constraint_name(exc)
+        conflict_context = " ".join(value for value in (constraint_name, message) if value)
+        if any(
+            marker in conflict_context
+            for marker in ("username", "uq_users_active_username", "uq_users_username")
+        ):
             return ApiError(
                 "DUPLICATE_USERNAME", "Username already exists.", status.HTTP_409_CONFLICT
             )
-        if "email" in message:
+        if any(
+            marker in conflict_context
+            for marker in (
+                "email",
+                "uq_supervisor_profiles_active_email",
+                "uq_supervisor_profiles_email",
+            )
+        ):
             return ApiError("DUPLICATE_EMAIL", "Email already exists.", status.HTTP_409_CONFLICT)
         return ApiError(
             "SUPERVISOR_CONFLICT",
             "Supervisor record conflicts with existing data.",
             status.HTTP_409_CONFLICT,
         )
+
+    @staticmethod
+    def _constraint_name(exc: IntegrityError) -> str:
+        diag = getattr(exc.orig, "diag", None)
+        constraint_name = getattr(diag, "constraint_name", None)
+        return str(constraint_name).lower() if constraint_name else ""

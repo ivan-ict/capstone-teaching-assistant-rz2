@@ -37,7 +37,9 @@ class SupervisorRepository:
         user: User,
         profile: SupervisorProfile,
     ) -> tuple[User, SupervisorProfile]:
-        self.session.add_all([user, profile])
+        self.session.add(user)
+        await self.session.flush()
+        self.session.add(profile)
         await self.session.flush()
         await self.session.refresh(user)
         await self.session.refresh(profile)
