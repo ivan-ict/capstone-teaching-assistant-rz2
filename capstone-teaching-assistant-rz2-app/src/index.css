@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-slate-750: #243044;
+  --color-slate-850: #141d2e;
+}
+
+@layer base {
+  * {
+    border-color: #e2e8f0;
+  }
+  .dark * {
+    border-color: #334155;
+  }
+  body {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Markdown typography styling */
+.prose {
+  color: #1e293b;
+  line-height: 1.65;
+}
+.dark .prose {
+  color: #e2e8f0;
+}
+
+.prose p {
+  margin-bottom: 0.75rem;
+}
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  font-weight: 700;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: #0f172a;
+}
+.dark .prose h1, .dark .prose h2, .dark .prose h3, .dark .prose h4 {
+  color: #f8fafc;
+}
+
+.prose h1 { font-size: 1.25rem; }
+.prose h2 { font-size: 1.125rem; }
+.prose h3 { font-size: 1rem; }
+
+.prose strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+.dark .prose strong {
+  color: #ffffff;
+}
+
+.prose ul, .prose ol {
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.prose ul { list-style-type: disc; }
+.prose ol { list-style-type: decimal; }
+
+.prose li {
+  margin-bottom: 0.25rem;
+}
+
+.prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  border-radius: 0.375rem;
+  background-color: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
+.dark .prose code {
+  background-color: #1e293b;
+  color: #93c5fd;
+  border-color: #334155;
+}
+
+.prose pre {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background-color: #0f172a;
+  color: #f8fafc;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.dark .prose pre {
+  background-color: #0b1120;
+  border: 1px solid #1e293b;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  border: 0;
+  color: inherit;
+}
+
+.prose blockquote {
+  border-left: 3px solid #3b82f6;
+  padding-left: 0.75rem;
+  margin: 0.75rem 0;
+  color: #475569;
+  font-style: italic;
+}
+.dark .prose blockquote {
+  color: #94a3b8;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.875rem;
+}
+.prose th, .prose td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+}
+.dark .prose th, .dark .prose td {
+  border-color: #334155;
+}
+.prose th {
+  background-color: #f8fafc;
+  font-weight: 600;
+  text-align: left;
+}
+.dark .prose th {
+  background-color: #1e293b;
+}
+
+/* Custom minimal scrollbar with smooth handling for long pages */
+.custom-scrollbar,
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+
+.dark .custom-scrollbar,
+.dark textarea {
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar,
+textarea::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track,
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb,
+textarea::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.7);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb,
+.dark textarea::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.dark textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(96, 165, 250, 0.7);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
