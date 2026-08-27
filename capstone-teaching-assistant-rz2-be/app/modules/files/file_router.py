@@ -10,7 +10,14 @@ from app.common.config import get_settings
 from app.common.database import get_db_session
 from app.common.db_models import FileProcessingStatus
 from app.common.errors import ApiError
-from app.modules.files.file_model import FileDetailDTO, FileDTO, FileListDTO
+from app.modules.files.file_model import (
+    FileBulkDeleteDTO,
+    FileBulkDeleteResultDTO,
+    FileContentDTO,
+    FileDetailDTO,
+    FileDTO,
+    FileListDTO,
+)
 from app.modules.files.file_service import FileService
 
 file_router = APIRouter(prefix="/files", tags=["Files"])
@@ -54,6 +61,15 @@ async def list_files(
     )
 
 
+@file_router.post("/bulk-delete", response_model=FileBulkDeleteResultDTO)
+async def bulk_delete_files(
+    payload: FileBulkDeleteDTO,
+    current_user: CurrentSupervisorDependency,
+    session: DatabaseSessionDependency,
+):
+    return await FileService(session).bulk_delete_files(current_user.id, payload.file_ids)
+
+
 @file_router.get("/{file_id}", response_model=FileDetailDTO)
 async def get_file(
     file_id: UUID,
@@ -61,6 +77,15 @@ async def get_file(
     session: DatabaseSessionDependency,
 ):
     return await FileService(session).get_file(current_user.id, file_id)
+
+
+@file_router.get("/{file_id}/content", response_model=FileContentDTO)
+async def get_file_content(
+    file_id: UUID,
+    current_user: CurrentSupervisorDependency,
+    session: DatabaseSessionDependency,
+):
+    return await FileService(session).get_content(current_user.id, file_id)
 
 
 @file_router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

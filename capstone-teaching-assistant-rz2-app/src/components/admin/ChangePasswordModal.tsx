@@ -17,7 +17,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ superv
 
   if (!supervisor) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -31,7 +31,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ superv
       return;
     }
 
-    const changed = changeSupervisorPassword(supervisor.id, newPassword);
+    const changed = await changeSupervisorPassword(supervisor.id, newPassword);
     if (!changed) return;
     setSuccess(true);
     setTimeout(() => {

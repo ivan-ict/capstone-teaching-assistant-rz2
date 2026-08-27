@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.common.db_models import FileProcessingStatus, MessageRole, MessageStatus
 from app.common.limits import MAX_FILE_IDS_PER_CHAT_CONTEXT
+from app.modules.messages.message_model import MessageSourceDTO
 
 
 class ProjectSummaryDTO(BaseModel):
@@ -30,6 +31,9 @@ class ConversationDTO(BaseModel):
 
 class ConversationListDTO(BaseModel):
     items: list[ConversationDTO]
+    page: int = 1
+    page_size: int | None = None
+    total: int | None = None
 
 
 class ConversationDetailDTO(BaseModel):
@@ -77,6 +81,7 @@ class ConversationMessageDTO(BaseModel):
     status: MessageStatus
     sequence_no: int
     files: list[MessageFileDTO]
+    sources: list[MessageSourceDTO] = Field(default_factory=list)
     created_at: datetime
 
 

@@ -27,6 +27,7 @@ conversation_router = APIRouter(prefix="/conversations", tags=["Conversations"])
 CurrentSupervisorDependency = Annotated[CurrentUser, Depends(get_current_supervisor)]
 DatabaseSessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 ProjectFilterDependency = Annotated[str | None, Query()]
+SEARCH_MAX_LENGTH = 100
 
 
 def _parse_project_filter(project_id: str | None) -> tuple[UUID | None, bool]:
@@ -65,12 +66,36 @@ async def list_conversations(
     current_user: CurrentSupervisorDependency,
     session: DatabaseSessionDependency,
     project_id: ProjectFilterDependency = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 100,
 ):
     parsed_project_id, unprojected = _parse_project_filter(project_id)
     return await ConversationService(session).list_conversations(
         supervisor_id=current_user.id,
         project_id=parsed_project_id,
         unprojected=unprojected,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@conversation_router.get("/search", response_model=ConversationListDTO)
+async def search_conversations(
+    current_user: CurrentSupervisorDependency,
+    session: DatabaseSessionDependency,
+    query: Annotated[str, Query(min_length=1, max_length=SEARCH_MAX_LENGTH)],
+    project_id: ProjectFilterDependency = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+):
+    parsed_project_id, unprojected = _parse_project_filter(project_id)
+    return await ConversationService(session).list_conversations(
+        supervisor_id=current_user.id,
+        project_id=parsed_project_id,
+        unprojected=unprojected,
+        page=page,
+        page_size=page_size,
+        search=query,
     )
 
 
@@ -160,3 +185,17 @@ async def associate_conversation_files(
         conversation_id,
         payload.file_ids,
     )
+
+
+@conversation_router.delete(
+    "/{conversation_id}/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def dissociate_conversation_file(
+    conversation_id: UUID,
+    file_id: UUID,
+    current_user: CurrentSupervisorDependency,
+    session: DatabaseSessionDependency,
+):
+    await ConversationService(session).dissociate_file(current_user.id, conversation_id, file_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

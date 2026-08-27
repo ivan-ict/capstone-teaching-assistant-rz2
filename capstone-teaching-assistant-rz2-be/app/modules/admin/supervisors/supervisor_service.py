@@ -5,7 +5,7 @@ from fastapi import status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.db_models import AccountStatus, SupervisorProfile, User, UserRole
+from app.common.db_models import AccountStatus, SupervisorProfile, TeachingSemester, User, UserRole
 from app.common.errors import ApiError, NotFoundError
 from app.common.security import hash_password
 from app.modules.admin.supervisors.supervisor_model import (
@@ -15,6 +15,7 @@ from app.modules.admin.supervisors.supervisor_model import (
     SupervisorFacultySummaryDTO,
     SupervisorListDTO,
     SupervisorListItemDTO,
+    SupervisorPasswordUpdateResponseDTO,
     SupervisorProfileDTO,
     SupervisorStatusResponseDTO,
     SupervisorUpdateDTO,
@@ -76,11 +77,37 @@ class SupervisorService:
         search: str | None,
         faculty_id: UUID | None,
         status_filter: AccountStatus | None,
+        teaching_year: int | None,
+        teaching_semester: TeachingSemester | None,
+        sort_by: str,
+        sort_order: str,
         page: int,
         page_size: int,
     ) -> SupervisorListDTO:
+        allowed_sort_fields = {
+            "full_name",
+            "username",
+            "email",
+            "faculty",
+            "teaching_year",
+            "teaching_semester",
+            "created_at",
+            "updated_at",
+        }
+        if sort_by not in allowed_sort_fields:
+            raise ApiError("INVALID_SORT_FIELD", "Unsupported supervisor sort field.")
+        if sort_order not in {"asc", "desc"}:
+            raise ApiError("INVALID_SORT_ORDER", "sort_order must be 'asc' or 'desc'.")
         rows, total = await self.repository.list_supervisors(
-            search, faculty_id, status_filter, page, page_size
+            search,
+            faculty_id,
+            status_filter,
+            teaching_year,
+            teaching_semester,
+            sort_by,
+            sort_order,
+            page,
+            page_size,
         )
         return SupervisorListDTO(
             items=[
@@ -90,8 +117,13 @@ class SupervisorService:
                     first_name=profile.first_name,
                     last_name=profile.last_name,
                     email=profile.email,
+                    phone=profile.phone,
+                    teaching_year=profile.teaching_year,
+                    teaching_semester=profile.teaching_semester,
                     status=user.status,
                     faculty=SupervisorFacultySummaryDTO(id=faculty.id, name=faculty.name),
+                    created_at=user.created_at,
+                    updated_at=max(user.updated_at, profile.updated_at),
                 )
                 for user, profile, faculty in rows
             ],
@@ -116,6 +148,10 @@ class SupervisorService:
         if payload.faculty_id is not None:
             await self._ensure_faculty(payload.faculty_id)
             profile.faculty_id = payload.faculty_id
+        if payload.first_name is not None:
+            profile.first_name = payload.first_name
+        if payload.last_name is not None:
+            profile.last_name = payload.last_name
         if payload.email is not None:
             email = str(payload.email)
             if await self.repository.email_exists(email, supervisor_id):
@@ -141,6 +177,17 @@ class SupervisorService:
         user.status = status_value
         await self.session.commit()
         return SupervisorStatusResponseDTO(id=user.id, status=user.status)
+
+    async def reset_password(
+        self, supervisor_id: UUID, new_password: str
+    ) -> SupervisorPasswordUpdateResponseDTO:
+        user, _profile, _faculty = await self._get_supervisor(supervisor_id)
+        user.password_hash = hash_password(new_password)
+        await self.session.commit()
+        return SupervisorPasswordUpdateResponseDTO(
+            id=user.id,
+            message="Supervisor password updated.",
+        )
 
     async def _get_supervisor(self, supervisor_id: UUID) -> tuple[User, SupervisorProfile, object]:
         row = await self.repository.get_supervisor(supervisor_id)

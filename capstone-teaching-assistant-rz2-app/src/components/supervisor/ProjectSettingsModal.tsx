@@ -21,7 +21,7 @@ export const ProjectSettingsModal: React.FC = () => {
     updateProject, 
     projects,
     libraryFiles, 
-    deleteFile, 
+    removeFileFromProject,
     uploadFiles 
   } = useApp();
 
@@ -310,8 +310,8 @@ export const ProjectSettingsModal: React.FC = () => {
               <button
                 id="confirm-delete-project-file-btn"
                 type="button"
-                onClick={() => {
-                  deleteFile(fileToRemove.id);
+                onClick={async () => {
+                  await removeFileFromProject(projectToEdit.id, fileToRemove.id);
                   setFileToRemove(null);
                 }}
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"

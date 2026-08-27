@@ -61,7 +61,7 @@ export const FacultyManagement: React.FC = () => {
     setModalMode('edit');
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = formData.name.trim();
     if (!cleanName) return;
@@ -73,13 +73,13 @@ export const FacultyManagement: React.FC = () => {
       : cleanName.slice(0, 4).toUpperCase();
 
     if (modalMode === 'add') {
-      addFaculty({
+      await addFaculty({
         name: cleanName,
         code: generatedCode,
         departmentHead: 'Unassigned',
       });
     } else if (modalMode === 'edit' && currentFaculty) {
-      updateFaculty(currentFaculty.id, {
+      await updateFaculty(currentFaculty.id, {
         name: cleanName,
       });
     }
@@ -315,9 +315,9 @@ export const FacultyManagement: React.FC = () => {
               </button>
               <button
                 id="confirm-delete-faculty-action-btn"
-                onClick={() => {
-                  deleteFaculty(deleteTarget.id);
-                  setDeleteTarget(null);
+                onClick={async () => {
+                  const deleted = await deleteFaculty(deleteTarget.id);
+                  if (deleted) setDeleteTarget(null);
                 }}
                 className="flex-1 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
               >

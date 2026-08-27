@@ -1,17 +1,19 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.auth import CurrentUser, get_current_admin
 from app.common.database import get_db_session
-from app.common.db_models import AccountStatus
+from app.common.db_models import AccountStatus, TeachingSemester
 from app.modules.admin.supervisors.supervisor_model import (
     SupervisorCreateDTO,
     SupervisorCreateResponseDTO,
     SupervisorDetailDTO,
     SupervisorListDTO,
+    SupervisorPasswordUpdateDTO,
+    SupervisorPasswordUpdateResponseDTO,
     SupervisorStatusResponseDTO,
     SupervisorStatusUpdateDTO,
     SupervisorUpdateDTO,
@@ -45,6 +47,10 @@ async def list_supervisors(
     search: Annotated[str | None, Query(max_length=SEARCH_MAX_LENGTH)] = None,
     faculty_id: Annotated[UUID | None, Query()] = None,
     status_filter: Annotated[AccountStatus | None, Query(alias="status")] = None,
+    teaching_year: Annotated[int | None, Query(ge=2000, le=2100)] = None,
+    teaching_semester: Annotated[TeachingSemester | None, Query()] = None,
+    sort_by: Annotated[str, Query()] = "created_at",
+    sort_order: Annotated[str, Query()] = "desc",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
@@ -52,6 +58,10 @@ async def list_supervisors(
         search,
         faculty_id,
         status_filter,
+        teaching_year,
+        teaching_semester,
+        sort_by,
+        sort_order,
         page,
         page_size,
     )
@@ -84,3 +94,26 @@ async def update_supervisor_status(
     session: DatabaseSessionDependency,
 ):
     return await SupervisorService(session).update_status(supervisor_id, payload.status)
+
+
+@supervisor_router.put(
+    "/{supervisor_id}/password",
+    response_model=SupervisorPasswordUpdateResponseDTO,
+)
+async def reset_supervisor_password(
+    supervisor_id: UUID,
+    payload: SupervisorPasswordUpdateDTO,
+    _current_admin: CurrentAdminDependency,
+    session: DatabaseSessionDependency,
+):
+    return await SupervisorService(session).reset_password(supervisor_id, payload.new_password)
+
+
+@supervisor_router.delete("/{supervisor_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_supervisor(
+    supervisor_id: UUID,
+    _current_admin: CurrentAdminDependency,
+    session: DatabaseSessionDependency,
+):
+    await SupervisorService(session).soft_delete_supervisor(supervisor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

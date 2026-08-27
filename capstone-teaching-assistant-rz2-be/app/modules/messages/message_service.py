@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 from uuid import UUID
 
 from fastapi import status
@@ -42,6 +43,7 @@ class MessageService:
         self.chat = chat or OllamaChatProvider(self.settings)
         self.embeddings = embeddings or OllamaEmbeddingProvider(self.settings)
         self.mcp_registry = mcp_registry or MessageMcpToolRegistry()
+        self.file_only_prompt = "Please analyze the attached files."
 
     async def create_message_pair(
         self,
@@ -61,6 +63,13 @@ class MessageService:
                 [*await self.repository.list_preselected_file_ids(conversation_id), *file_ids]
             )
         )
+        message_content = content or self.file_only_prompt
+        if not content and not unique_file_ids:
+            raise ApiError(
+                "VALIDATION_ERROR",
+                "Message content or files must be provided.",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
         if len(unique_file_ids) > MAX_FILE_IDS_PER_CHAT_CONTEXT:
             raise ApiError(
                 "FILE_LIMIT_EXCEEDED",
@@ -86,7 +95,7 @@ class MessageService:
         user_message = await self.repository.create_message(
             conversation_id,
             MessageRole.USER,
-            content,
+            message_content,
             MessageStatus.COMPLETED,
             user_sequence,
         )
@@ -135,7 +144,12 @@ class MessageService:
             query_embedding = await self.embeddings.embed_query(user_message.content)
             self._validate_embedding(query_embedding)
             await self.repository.set_message_embedding(user_message, query_embedding)
-            context = await self._retrieve_context(user_message, query_embedding)
+            context_rows = await self.repository.retrieve_chunks(
+                await self.repository.list_message_file_ids(user_message.id),
+                query_embedding,
+                self.settings.rag_top_k,
+            )
+            context = self._retrieved_chunk_dtos(context_rows)
             relevant_messages = await self._retrieve_relevant_messages(
                 user_message,
                 query_embedding,
@@ -174,6 +188,7 @@ class MessageService:
                 assistant_content,
                 MessageStatus.COMPLETED,
             )
+            assistant_message.sources = self._source_payloads(context)
             await self.session.commit()
             generation_finished = True
             yield self._sse(
@@ -181,6 +196,7 @@ class MessageService:
                 {
                     "message_id": str(assistant_message.id),
                     "status": MessageStatus.COMPLETED.value,
+                    "sources": self._source_payloads(context),
                 },
             )
         except asyncio.CancelledError:
@@ -238,13 +254,28 @@ class MessageService:
             query_embedding,
             self.settings.rag_top_k,
         )
+        return self._retrieved_chunk_dtos(retrieved)
+
+    def _retrieved_chunk_dtos(self, retrieved: list[tuple[Any, Any]]) -> list[RetrievedChunkDTO]:
         return [
             RetrievedChunkDTO(
+                chunk_id=chunk.id,
                 file_id=file.id,
                 original_filename=file.original_filename,
                 content=chunk.content,
             )
             for chunk, file in retrieved
+        ]
+
+    def _source_payloads(self, sources: list[RetrievedChunkDTO]) -> list[dict[str, object]]:
+        return [
+            {
+                "chunk_id": str(source.chunk_id),
+                "file_id": str(source.file_id),
+                "original_filename": source.original_filename,
+                "content": source.content,
+            }
+            for source in sources
         ]
 
     async def _retrieve_relevant_messages(
@@ -328,6 +359,7 @@ class MessageService:
             content=message.content,
             status=message.status,
             sequence_no=message.sequence_no,
+            sources=[],
         )
 
     def _sse(self, event: str, data: dict[str, object]) -> str:

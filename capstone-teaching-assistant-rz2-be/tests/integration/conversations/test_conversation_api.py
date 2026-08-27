@@ -164,6 +164,49 @@ async def test_conversation_messages_and_files(client: AsyncClient, session: Asy
 
 
 @pytest.mark.asyncio
+async def test_conversation_search_and_preselected_file_dissociation(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team Contribution")
+    file = File(
+        supervisor_id=DEV_SUPERVISOR_ID,
+        original_filename="rubric.txt",
+        stored_filename="rubric.txt",
+        storage_base_url="http://localhost:9000/capstone-files/",
+        storage_path="supervisors/dev/files/rubric.txt",
+        mime_type="text/plain",
+        file_size_bytes=120,
+        processing_status=FileProcessingStatus.READY,
+    )
+    session.add_all([conversation, file])
+    await session.flush()
+    session.add_all(
+        [
+            Message(
+                conversation_id=conversation.id,
+                role=MessageRole.USER,
+                content="How should I handle contribution disputes?",
+                status=MessageStatus.COMPLETED,
+                sequence_no=1,
+            ),
+            MessageFile(conversation_id=conversation.id, message_id=None, file_id=file.id),
+        ]
+    )
+    await session.commit()
+
+    search_response = await client.get("/api/v1/conversations/search", params={"query": "disputes"})
+    assert search_response.status_code == 200
+    assert [item["id"] for item in search_response.json()["items"]] == [str(conversation.id)]
+
+    delete_response = await client.delete(f"/api/v1/conversations/{conversation.id}/files/{file.id}")
+    assert delete_response.status_code == 204
+
+    files_response = await client.get(f"/api/v1/conversations/{conversation.id}/files")
+    assert files_response.status_code == 200
+    assert files_response.json()["items"] == []
+
+
+@pytest.mark.asyncio
 async def test_conversation_messages_hide_soft_deleted_file_links(
     client: AsyncClient, session: AsyncSession
 ) -> None:

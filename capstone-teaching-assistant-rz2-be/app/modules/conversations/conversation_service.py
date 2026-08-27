@@ -21,6 +21,7 @@ from app.modules.conversations.conversation_model import (
     MessageFileDTO,
     ProjectSummaryDTO,
 )
+from app.modules.messages.message_model import MessageSourceDTO
 from app.modules.conversations.conversation_repository import ConversationRepository
 
 
@@ -41,7 +42,13 @@ class ConversationService:
         return ConversationDTO.model_validate(conversation)
 
     async def list_conversations(
-        self, supervisor_id: UUID, project_id: UUID | None, unprojected: bool
+        self,
+        supervisor_id: UUID,
+        project_id: UUID | None,
+        unprojected: bool,
+        page: int = 1,
+        page_size: int = 100,
+        search: str | None = None,
     ) -> ConversationListDTO:
         if project_id is not None:
             await self._ensure_project(supervisor_id, project_id)
@@ -49,9 +56,21 @@ class ConversationService:
             supervisor_id,
             project_id,
             unprojected,
+            page,
+            page_size,
+            search,
+        )
+        total = await self.repository.count_conversations(
+            supervisor_id,
+            project_id,
+            unprojected,
+            search,
         )
         return ConversationListDTO(
-            items=[ConversationDTO.model_validate(conversation) for conversation in conversations]
+            items=[ConversationDTO.model_validate(conversation) for conversation in conversations],
+            page=page,
+            page_size=page_size,
+            total=total,
         )
 
     async def get_conversation(
@@ -123,6 +142,15 @@ class ConversationService:
                         for message_file in message.files
                         if message_file.deleted_at is None and message_file.file.deleted_at is None
                     ],
+                    sources=[
+                        MessageSourceDTO(
+                            chunk_id=source.get("chunk_id"),
+                            file_id=source["file_id"],
+                            original_filename=str(source["original_filename"]),
+                            content=str(source["content"]),
+                        )
+                        for source in (message.sources or [])
+                    ],
                     created_at=message.created_at,
                 )
                 for message in messages
@@ -189,6 +217,15 @@ class ConversationService:
                 for file in files
             ],
         )
+
+    async def dissociate_file(
+        self, supervisor_id: UUID, conversation_id: UUID, file_id: UUID
+    ) -> None:
+        await self._get_conversation(supervisor_id, conversation_id)
+        removed = await self.repository.dissociate_preselected_file(conversation_id, file_id)
+        if not removed:
+            raise NotFoundError("Conversation file association not found.")
+        await self.session.commit()
 
     async def _get_conversation(self, supervisor_id: UUID, conversation_id: UUID) -> Any:
         conversation = await self.repository.get_for_supervisor(conversation_id, supervisor_id)

@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     SmallInteger,
     String,
     Text,
@@ -94,7 +95,7 @@ class RevokedToken(Base):
     )
 
 
-class Faculty(SoftDeleteMixin, Base):
+class Faculty(TimestampMixin, Base):
     __tablename__ = "faculties"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -204,6 +205,7 @@ class Message(TimestampMixin, Base):
     )
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSION))
+    sources: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list, nullable=False)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
     files: Mapped[list[MessageFile]] = relationship(
@@ -294,3 +296,4 @@ class DocumentChunk(SoftDeleteMixin, Base):
     )
 
     file: Mapped[File] = relationship(back_populates="chunks")
+

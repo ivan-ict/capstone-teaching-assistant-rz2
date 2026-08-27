@@ -232,7 +232,6 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({ isOpen, 
               >
                 <option value="Semester 1">Semester 1</option>
                 <option value="Semester 2">Semester 2</option>
-                <option value="Summer">Summer</option>
               </select>
             </div>
           </div>

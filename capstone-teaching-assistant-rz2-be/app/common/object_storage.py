@@ -34,6 +34,10 @@ class ObjectStorageClient:
     def delete_object(self, storage_path: str) -> None:
         self._client.delete_object(Bucket=self.settings.rustfs_bucket_name, Key=storage_path)
 
+    def download_bytes(self, storage_path: str) -> bytes:
+        response = self._client.get_object(Bucket=self.settings.rustfs_bucket_name, Key=storage_path)
+        return response["Body"].read()
+
     def presigned_download_url(self, storage_path: str, expires_in_seconds: int = 3600) -> str:
         return self._client.generate_presigned_url(
             "get_object",

@@ -25,6 +25,9 @@ class FakeStorageClient:
     def delete_object(self, storage_path: str) -> None:
         return None
 
+    def download_bytes(self, storage_path: str) -> bytes:
+        return b"Capstone handbook guidance for teams."
+
     def presigned_download_url(self, storage_path: str, expires_in_seconds: int = 3600) -> str:
         return f"http://storage.local/{storage_path}"
 
@@ -94,6 +97,29 @@ async def test_file_upload_list_detail_download_and_delete(
         )
     )
     assert all(chunk.deleted_at is not None for chunk in deleted_chunks)
+
+
+@pytest.mark.asyncio
+async def test_file_content_preview_and_bulk_delete(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.modules.files.file_service.ObjectStorageClient", FakeStorageClient)
+    monkeypatch.setattr("app.modules.files.file_service.OllamaEmbeddingProvider", FakeEmbeddings)
+
+    upload_response = await client.post(
+        "/api/v1/files",
+        files={"file": ("handbook.txt", b"Capstone handbook guidance for teams.", "text/plain")},
+    )
+    file_id = upload_response.json()["id"]
+
+    content_response = await client.get(f"/api/v1/files/{file_id}/content")
+    assert content_response.status_code == 200
+    assert content_response.json()["content"] == "Capstone handbook guidance for teams."
+
+    delete_response = await client.post("/api/v1/files/bulk-delete", json={"file_ids": [file_id]})
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_ids"] == [file_id]
+    assert delete_response.json()["failed_ids"] == []
 
 
 @pytest.mark.asyncio

@@ -91,7 +91,7 @@ export const SupervisorManagement: React.FC = () => {
     return Array.from(new Set([...baseYears, ...years])).sort((a, b) => Number(b) - Number(a));
   }, [supervisors]);
 
-  const availableSemesters = ['Semester 1', 'Semester 2', 'Summer'];
+  const availableSemesters = ['Semester 1', 'Semester 2'];
 
   // Toggle multi-select item
   const toggleFaculty = (facName: string) => {

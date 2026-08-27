@@ -15,13 +15,14 @@ from app.modules.account.account_router import account_router
 from app.modules.admin.supervisors.supervisor_router import supervisor_router
 from app.modules.auth.auth_router import auth_router
 from app.modules.conversations.conversation_router import conversation_router
-from app.modules.faculties.faculty_router import faculty_router
+from app.modules.faculties.faculty_router import admin_faculty_router, faculty_router
 from app.modules.files.file_router import file_router
 from app.modules.messages.message_router import message_router
 from app.modules.projects.project_router import project_router
 
 ROLE_PROTECTED_TAGS = {
     "Admin Supervisors",
+    "Admin Faculties",
     "Conversations",
     "Files",
     "Messages",
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(account_router, prefix="/api/v1")
     app.include_router(faculty_router, prefix="/api/v1")
+    app.include_router(admin_faculty_router, prefix="/api/v1")
     app.include_router(supervisor_router, prefix="/api/v1")
     app.include_router(project_router, prefix="/api/v1")
     app.include_router(conversation_router, prefix="/api/v1")

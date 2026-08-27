@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, select, update
+from sqlalchemy import Select, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,9 @@ class ConversationRepository:
         supervisor_id: UUID,
         project_id: UUID | None = None,
         unprojected: bool = False,
+        page: int = 1,
+        page_size: int = 100,
+        search: str | None = None,
     ) -> list[Conversation]:
         query = (
             select(Conversation)
@@ -59,8 +62,44 @@ class ConversationRepository:
             query = query.where(Conversation.project_id.is_(None))
         elif project_id is not None:
             query = query.where(Conversation.project_id == project_id)
+        if search:
+            query = (
+                query.outerjoin(Message, Message.conversation_id == Conversation.id)
+                .where(
+                    or_(
+                        Conversation.title.ilike(f"%{search}%"),
+                        Message.content.ilike(f"%{search}%"),
+                    )
+                )
+                .distinct()
+            )
+        query = query.offset((page - 1) * page_size).limit(page_size)
         result = await self.session.scalars(query)
         return list(result)
+
+    async def count_conversations(
+        self,
+        supervisor_id: UUID,
+        project_id: UUID | None = None,
+        unprojected: bool = False,
+        search: str | None = None,
+    ) -> int:
+        query = select(func.count(func.distinct(Conversation.id))).where(
+            Conversation.supervisor_id == supervisor_id,
+            Conversation.deleted_at.is_(None),
+        )
+        if unprojected:
+            query = query.where(Conversation.project_id.is_(None))
+        elif project_id is not None:
+            query = query.where(Conversation.project_id == project_id)
+        if search:
+            query = query.outerjoin(Message, Message.conversation_id == Conversation.id).where(
+                or_(
+                    Conversation.title.ilike(f"%{search}%"),
+                    Message.content.ilike(f"%{search}%"),
+                )
+            )
+        return await self.session.scalar(query) or 0
 
     async def get_for_supervisor(
         self, conversation_id: UUID, supervisor_id: UUID
@@ -116,7 +155,9 @@ class ConversationRepository:
             select(Message)
             .where(Message.conversation_id == conversation_id)
             .where(Message.deleted_at.is_(None))
-            .options(selectinload(Message.files).selectinload(MessageFile.file))
+            .options(
+                selectinload(Message.files).selectinload(MessageFile.file),
+            )
             .order_by(Message.sequence_no.asc())
         )
         result = await self.session.scalars(query)
@@ -187,3 +228,17 @@ class ConversationRepository:
             await self.session.execute(statement.on_conflict_do_nothing())
         await self.session.flush()
         return files
+
+    async def dissociate_preselected_file(self, conversation_id: UUID, file_id: UUID) -> bool:
+        result = await self.session.execute(
+            update(MessageFile)
+            .where(
+                MessageFile.conversation_id == conversation_id,
+                MessageFile.file_id == file_id,
+                MessageFile.message_id.is_(None),
+                MessageFile.deleted_at.is_(None),
+            )
+            .values(deleted_at=datetime.now(UTC))
+        )
+        await self.session.flush()
+        return result.rowcount == 1

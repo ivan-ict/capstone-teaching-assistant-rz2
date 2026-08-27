@@ -1,9 +1,16 @@
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.db_models import AccountStatus, Faculty, SupervisorProfile, User, UserRole
+from app.common.db_models import (
+    AccountStatus,
+    Faculty,
+    SupervisorProfile,
+    TeachingSemester,
+    User,
+    UserRole,
+)
 
 
 class SupervisorRepository:
@@ -50,6 +57,10 @@ class SupervisorRepository:
         search: str | None,
         faculty_id: UUID | None,
         status: AccountStatus | None,
+        teaching_year: int | None,
+        teaching_semester: TeachingSemester | None,
+        sort_by: str,
+        sort_order: str,
         page: int,
         page_size: int,
     ) -> tuple[list[tuple[User, SupervisorProfile, Faculty]], int]:
@@ -73,6 +84,10 @@ class SupervisorRepository:
             filters.append(SupervisorProfile.faculty_id == faculty_id)
         if status:
             filters.append(User.status == status)
+        if teaching_year is not None:
+            filters.append(SupervisorProfile.teaching_year == teaching_year)
+        if teaching_semester is not None:
+            filters.append(SupervisorProfile.teaching_semester == teaching_semester)
 
         base_query = (
             select(User, SupervisorProfile, Faculty)
@@ -82,10 +97,22 @@ class SupervisorRepository:
         )
         total_query = select(func.count()).select_from(base_query.subquery())
         total = await self.session.scalar(total_query) or 0
+        sort_columns = {
+            "full_name": SupervisorProfile.last_name,
+            "username": User.username,
+            "email": SupervisorProfile.email,
+            "faculty": Faculty.name,
+            "teaching_year": SupervisorProfile.teaching_year,
+            "teaching_semester": SupervisorProfile.teaching_semester,
+            "created_at": User.created_at,
+            "updated_at": User.updated_at,
+        }
+        sort_column = sort_columns.get(sort_by, User.created_at)
+        order_fn = desc if sort_order == "desc" else asc
         rows = list(
             (
                 await self.session.execute(
-                    base_query.order_by(SupervisorProfile.last_name.asc())
+                    base_query.order_by(order_fn(sort_column))
                     .offset((page - 1) * page_size)
                     .limit(page_size)
                 )

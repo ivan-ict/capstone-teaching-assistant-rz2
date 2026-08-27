@@ -13,7 +13,13 @@ from app.common.db_models import File, FileProcessingStatus
 from app.common.errors import ApiError, ErrorDetailDTO, NotFoundError
 from app.common.object_storage import ObjectStorageClient
 from app.common.text_processing import chunk_text
-from app.modules.files.file_model import FileDetailDTO, FileDTO, FileListDTO
+from app.modules.files.file_model import (
+    FileBulkDeleteResultDTO,
+    FileContentDTO,
+    FileDetailDTO,
+    FileDTO,
+    FileListDTO,
+)
 from app.modules.files.file_repository import FileRepository
 
 STORED_FILENAME_MAX_LENGTH = 255
@@ -30,6 +36,8 @@ class StorageProvider(Protocol):
     ) -> None: ...
 
     def delete_object(self, storage_path: str) -> None: ...
+
+    def download_bytes(self, storage_path: str) -> bytes: ...
 
     def presigned_download_url(self, storage_path: str, expires_in_seconds: int = 3600) -> str: ...
 
@@ -169,6 +177,50 @@ class FileService:
                 status.HTTP_502_BAD_GATEWAY,
             ) from exc
         await self.session.commit()
+
+    async def bulk_delete_files(
+        self, supervisor_id: UUID, file_ids: list[UUID]
+    ) -> FileBulkDeleteResultDTO:
+        deleted_ids: list[UUID] = []
+        failed_ids: list[UUID] = []
+        for file_id in list(dict.fromkeys(file_ids)):
+            try:
+                await self.delete_file(supervisor_id, file_id)
+                deleted_ids.append(file_id)
+            except Exception:
+                failed_ids.append(file_id)
+        return FileBulkDeleteResultDTO(deleted_ids=deleted_ids, failed_ids=failed_ids)
+
+    async def get_content(self, supervisor_id: UUID, file_id: UUID) -> FileContentDTO:
+        file = await self._get_file(supervisor_id, file_id)
+        if not self._is_supported_text_file(file.original_filename, file.mime_type):
+            raise ApiError(
+                "UNSUPPORTED_FILE_TYPE",
+                "Only UTF-8 text files can be previewed.",
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+        try:
+            content = await asyncio.to_thread(self.storage.download_bytes, file.storage_path)
+        except Exception as exc:
+            raise ApiError(
+                "OBJECT_STORAGE_DOWNLOAD_FAILED",
+                "Object storage download failed.",
+                status.HTTP_502_BAD_GATEWAY,
+            ) from exc
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ApiError(
+                "INVALID_FILE_CONTENT",
+                "Stored file content is not valid UTF-8.",
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            ) from exc
+        return FileContentDTO(
+            id=file.id,
+            original_filename=file.original_filename,
+            mime_type=file.mime_type,
+            content=text,
+        )
 
     async def get_download_url(self, supervisor_id: UUID, file_id: UUID) -> str:
         file = await self._get_file(supervisor_id, file_id)

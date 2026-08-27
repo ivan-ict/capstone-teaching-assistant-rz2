@@ -8,12 +8,14 @@ export const SearchConversationModal: React.FC = () => {
     isSearchModalOpen, 
     setIsSearchModalOpen, 
     conversations, 
+    searchConversations,
     projects, 
     setActiveConversationId, 
     setActiveSupervisorView 
   } = useApp();
 
   const [query, setQuery] = useState('');
+  const [results, setResults] = useState(conversations);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -23,6 +25,23 @@ export const SearchConversationModal: React.FC = () => {
       setQuery('');
     }
   }, [isSearchModalOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isSearchModalOpen) return;
+    const timer = window.setTimeout(async () => {
+      if (!query.trim()) {
+        setResults(conversations);
+        return;
+      }
+      const nextResults = await searchConversations(query);
+      if (!cancelled) setResults(nextResults);
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [conversations, isSearchModalOpen, query, searchConversations]);
 
   // Keyboard shortcut Cmd+K or Ctrl+K
   useEffect(() => {
@@ -41,7 +60,7 @@ export const SearchConversationModal: React.FC = () => {
 
   if (!isSearchModalOpen) return null;
 
-  const filteredConversations = conversations.filter(c => {
+  const filteredConversations = results.filter(c => {
     if (!query.trim()) return true;
     const q = query.toLowerCase();
     const matchesTitle = c.title.toLowerCase().includes(q);

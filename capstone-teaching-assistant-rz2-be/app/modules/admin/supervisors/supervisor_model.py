@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Self
 from uuid import UUID
 
@@ -67,8 +68,13 @@ class SupervisorListItemDTO(BaseModel):
     first_name: str
     last_name: str
     email: str
+    phone: str | None = None
+    teaching_year: int | None = None
+    teaching_semester: TeachingSemester | None = None
     status: AccountStatus
     faculty: SupervisorFacultySummaryDTO
+    created_at: datetime
+    updated_at: datetime
 
 
 class SupervisorListDTO(BaseModel):
@@ -88,6 +94,8 @@ class SupervisorDetailDTO(BaseModel):
 class SupervisorUpdateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    first_name: SupervisorName | None = None
+    last_name: SupervisorName | None = None
     email: EmailStr | None = Field(default=None, max_length=320)
     phone: SupervisorPhone | None = None
     faculty_id: UUID | None = None
@@ -124,3 +132,14 @@ class SupervisorStatusUpdateDTO(BaseModel):
 class SupervisorStatusResponseDTO(BaseModel):
     id: UUID
     status: AccountStatus
+
+
+class SupervisorPasswordUpdateDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_password: str = Field(min_length=8, max_length=MAX_PASSWORD_LENGTH)
+
+
+class SupervisorPasswordUpdateResponseDTO(BaseModel):
+    id: UUID
+    message: str

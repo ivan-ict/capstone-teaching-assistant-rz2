@@ -9,8 +9,15 @@ from app.common.limits import MAX_FILE_IDS_PER_CHAT_CONTEXT, MAX_MESSAGE_CONTENT
 class MessageCreateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    content: str = Field(min_length=1, max_length=MAX_MESSAGE_CONTENT_LENGTH)
+    content: str = Field(default="", max_length=MAX_MESSAGE_CONTENT_LENGTH)
     file_ids: list[UUID] = Field(default_factory=list, max_length=MAX_FILE_IDS_PER_CHAT_CONTEXT)
+
+
+class MessageSourceDTO(BaseModel):
+    chunk_id: UUID | None = None
+    file_id: UUID
+    original_filename: str
+    content: str
 
 
 class MessageDTO(BaseModel):
@@ -19,6 +26,7 @@ class MessageDTO(BaseModel):
     content: str
     status: MessageStatus
     sequence_no: int
+    sources: list[MessageSourceDTO] = Field(default_factory=list)
 
 
 class MessageCreateResponseDTO(BaseModel):
@@ -33,6 +41,7 @@ class MessageRetryResponseDTO(BaseModel):
 
 
 class RetrievedChunkDTO(BaseModel):
+    chunk_id: UUID
     file_id: UUID
     original_filename: str
     content: str

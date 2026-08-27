@@ -29,15 +29,16 @@ interface AppContextType {
   updateSupervisor: (id: string, data: Partial<User>) => Promise<void>;
   suspendSupervisor: (id: string) => Promise<void>;
   activateSupervisor: (id: string) => Promise<void>;
-  changeSupervisorPassword: (id: string, newPassword: string) => boolean;
-  deleteSupervisor: (id: string) => void;
-  addFaculty: (faculty: Omit<Faculty, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateFaculty: (id: string, faculty: Partial<Faculty>) => void;
-  deleteFaculty: (id: string) => boolean;
+  changeSupervisorPassword: (id: string, newPassword: string) => Promise<boolean>;
+  deleteSupervisor: (id: string) => Promise<void>;
+  addFaculty: (faculty: Omit<Faculty, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateFaculty: (id: string, faculty: Partial<Faculty>) => Promise<void>;
+  deleteFaculty: (id: string) => Promise<boolean>;
   activeSupervisorView: SupervisorActiveView;
   setActiveSupervisorView: (view: SupervisorActiveView) => void;
   projects: Project[];
   conversations: Conversation[];
+  searchConversations: (query: string) => Promise<Conversation[]>;
   activeConversationId: string | null;
   setActiveConversationId: (id: string | null) => void;
   activeConversation: Conversation | null;
@@ -58,7 +59,8 @@ interface AppContextType {
   uploadFiles: (files: FileList | File[], projectId?: string | null) => Promise<AttachedFile[]>;
   deleteFile: (fileId: string) => Promise<void>;
   deleteFilesBulk: (fileIds: string[]) => Promise<void>;
-  assignFileToProject: (fileId: string, projectId: string | null) => void;
+  assignFileToProject: (fileId: string, projectId: string | null) => Promise<void>;
+  removeFileFromProject: (projectId: string, fileId: string) => Promise<void>;
   downloadFile: (file: AttachedFile) => Promise<void>;
   isSearchModalOpen: boolean;
   setIsSearchModalOpen: (open: boolean) => void;
@@ -185,7 +187,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshAdminData = useCallback(async () => {
     const [nextFaculties, active, inactive] = await Promise.all([
-      api.listFaculties(),
+      api.listAdminFaculties(),
       api.listSupervisors({ status: 'ACTIVE' }),
       api.listSupervisors({ status: 'INACTIVE' }),
     ]);
@@ -229,6 +231,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showError(error, 'Could not load conversation messages.');
     }
   }, [api, showError]);
+
+  const searchConversations = useCallback(async (query: string): Promise<Conversation[]> => {
+    if (!query.trim()) return conversations;
+    try {
+      const results = await api.searchConversations(query.trim());
+      return results.map(result => ({
+        ...result,
+        messages: conversations.find(conversation => conversation.id === result.id)?.messages || [],
+      }));
+    } catch (error) {
+      showError(error, 'Could not search conversations.');
+      return [];
+    }
+  }, [api, conversations, showError]);
 
   useEffect(() => {
     if (!token) return;
@@ -331,8 +347,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateSupervisor = async (id: string, data: Partial<User>) => {
     try {
       const current = supervisors.find(supervisor => supervisor.id === id);
-      if (current && (data.username !== current.username || data.firstName !== current.firstName || data.lastName !== current.lastName)) {
-        throw new ApiClientError(422, 'UNSUPPORTED_SUPERVISOR_FIELDS', 'The current API cannot update supervisor username or name.');
+      if (current && data.username !== undefined && data.username !== current.username) {
+        throw new ApiClientError(422, 'UNSUPPORTED_SUPERVISOR_USERNAME', 'Supervisor username cannot be changed.');
       }
       await api.updateSupervisor(id, data, faculties);
       await refreshAdminData();
@@ -359,26 +375,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const changeSupervisorPassword = (): boolean => {
-    alert('Admin supervisor password reset is not supported by the current API.');
-    return false;
+  const changeSupervisorPassword = async (id: string, newPassword: string): Promise<boolean> => {
+    try {
+      await api.resetSupervisorPassword(id, newPassword);
+      return true;
+    } catch (error) {
+      showError(error, 'Could not reset supervisor password.');
+      return false;
+    }
   };
 
-  const deleteSupervisor = () => {
-    alert('Deleting supervisors is not supported by the current API.');
+  const deleteSupervisor = async (id: string) => {
+    try {
+      await api.deleteSupervisor(id);
+      await refreshAdminData();
+    } catch (error) {
+      showError(error, 'Could not delete supervisor.');
+    }
   };
 
-  const addFaculty = () => {
-    alert('Creating faculties is not supported by the current API.');
+  const addFaculty = async (faculty: Omit<Faculty, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      await api.createFaculty({ name: faculty.name, code: faculty.code });
+      await refreshAdminData();
+    } catch (error) {
+      showError(error, 'Could not create faculty.');
+    }
   };
 
-  const updateFaculty = () => {
-    alert('Editing faculties is not supported by the current API.');
+  const updateFaculty = async (id: string, faculty: Partial<Faculty>) => {
+    try {
+      await api.updateFaculty(id, faculty);
+      await refreshAdminData();
+    } catch (error) {
+      showError(error, 'Could not update faculty.');
+    }
   };
 
-  const deleteFaculty = (): boolean => {
-    alert('Deleting faculties is not supported by the current API.');
-    return false;
+  const deleteFaculty = async (id: string): Promise<boolean> => {
+    try {
+      await api.deleteFaculty(id);
+      await refreshAdminData();
+      return true;
+    } catch (error) {
+      showError(error, 'Could not delete faculty.');
+      return false;
+    }
   };
 
   const toggleProjectExpanded = (projectId: string) => {
@@ -497,26 +539,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activeConversation = conversations.find(conversation => conversation.id === activeConversationId) || null;
 
   const sendMessage = async (content: string, attachedFiles: AttachedFile[] = []) => {
-    if (!content.trim()) {
-      alert('Please enter a message. The current API does not support file-only messages.');
+    const messageFiles = attachedFiles.length ? attachedFiles : pendingChatAttachments;
+    const messageContent = content.trim();
+    if (!messageContent && !messageFiles.length) {
+      alert('Please enter a message or attach files.');
       return;
     }
     let targetConversation = activeConversation;
     if (!targetConversation) {
-      targetConversation = await createConversation(null, content.slice(0, 36) + (content.length > 36 ? '...' : ''));
+      const titleSeed = messageContent || messageFiles.map(file => file.name).join(', ');
+      targetConversation = await createConversation(null, titleSeed.slice(0, 36) + (titleSeed.length > 36 ? '...' : ''));
       if (!targetConversation) return;
     }
 
     setIsGeneratingResponse(true);
     try {
-      const response = await api.createMessage(targetConversation.id, content.trim(), attachedFiles.map(file => file.id));
+      const response = await api.createMessage(targetConversation.id, messageContent, messageFiles.map(file => file.id));
       const now = new Date().toISOString();
       const userMessage: Message = {
         id: response.user_message.id,
         role: 'user',
         content: response.user_message.content,
         timestamp: now,
-        attachedFiles: attachedFiles.length ? attachedFiles : undefined,
+        attachedFiles: messageFiles.length ? messageFiles : undefined,
       };
       const assistantMessage: Message = {
         id: response.assistant_message.id,
@@ -527,7 +572,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setConversations(prev => prev.map(conversation => {
         if (conversation.id !== targetConversation!.id) return conversation;
         const title = conversation.messages.length === 0 && conversation.title.toLowerCase().startsWith('new conversation')
-          ? content.slice(0, 42).trim() + (content.length > 42 ? '...' : '')
+          ? response.user_message.content.slice(0, 42).trim() + (response.user_message.content.length > 42 ? '...' : '')
           : conversation.title;
         return {
           ...conversation,
@@ -536,6 +581,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           messages: [...conversation.messages, userMessage],
         };
       }));
+      setPendingChatAttachments([]);
       await api.streamMessage(response.stream_url, tokenDelta => {
         setConversations(prev => prev.map(conversation => conversation.id === targetConversation!.id
           ? {
@@ -591,13 +637,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteFilesBulk = async (fileIds: string[]) => {
-    for (const fileId of fileIds) {
-      await deleteFile(fileId);
+    try {
+      await api.deleteFilesBulk(fileIds);
+      setLibraryFiles(prev => prev.filter(file => !fileIds.includes(file.id)));
+      setConversations(prev => prev.map(conversation => ({
+        ...conversation,
+        messages: conversation.messages.map(message => ({
+          ...message,
+          attachedFiles: message.attachedFiles?.filter(file => !fileIds.includes(file.id)),
+        })),
+      })));
+    } catch (error) {
+      showError(error, 'Could not delete selected files.');
     }
   };
 
-  const assignFileToProject = () => {
-    alert('Direct file-to-project assignment is not supported by the current API. Files become project context through conversations.');
+  const assignFileToProject = async (fileId: string, projectId: string | null) => {
+    if (!activeConversationId || !projectId) {
+      alert('Files become project context through conversations. Select a project conversation before assigning files.');
+      return;
+    }
+    try {
+      await api.associateConversationFiles(activeConversationId, [fileId]);
+      await refreshSupervisorData();
+    } catch (error) {
+      showError(error, 'Could not attach file to the active conversation.');
+    }
+  };
+
+  const removeFileFromProject = async (projectId: string, fileId: string) => {
+    const projectConversations = conversations.filter(conversation => conversation.projectId === projectId);
+    if (!projectConversations.length) {
+      alert('Project files are derived from conversations, but this project has no conversations to update.');
+      return;
+    }
+    try {
+      await Promise.all(projectConversations.map(conversation =>
+        api.dissociateConversationFile(conversation.id, fileId).catch(() => undefined)
+      ));
+      await refreshSupervisorData();
+    } catch (error) {
+      showError(error, 'Could not remove file from project context.');
+    }
   };
 
   const downloadFile = async (file: AttachedFile) => {
@@ -618,7 +699,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const previewFile = useCallback((file: AttachedFile) => {
     setFileToPreview(file);
-  }, []);
+    api.getFileContent(file.id)
+      .then(response => {
+        const encoded = btoa(unescape(encodeURIComponent(response.content)));
+        setFileToPreview(current => current?.id === file.id ? {
+          ...current,
+          dataUrl: `data:${response.mime_type};base64,${encoded}`,
+        } : current);
+      })
+      .catch(() => undefined);
+  }, [api]);
 
   const setProjectToEdit = (project: Project | null) => {
     setProjectToEditState(project);
@@ -663,6 +753,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveSupervisorView,
         projects,
         conversations,
+        searchConversations,
         activeConversationId,
         setActiveConversationId,
         activeConversation,
@@ -684,6 +775,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteFile,
         deleteFilesBulk,
         assignFileToProject,
+        removeFileFromProject,
         downloadFile,
         isSearchModalOpen,
         setIsSearchModalOpen,

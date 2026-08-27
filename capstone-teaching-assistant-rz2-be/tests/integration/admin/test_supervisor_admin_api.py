@@ -48,6 +48,12 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
     list_response = await client.get("/api/v1/admin/supervisors", headers=headers)
     assert list_response.status_code == 200
     assert list_response.json()["total"] == 1
+    listed = list_response.json()["items"][0]
+    assert listed["phone"] == "0412345678"
+    assert listed["teaching_year"] == 2026
+    assert listed["teaching_semester"] == "SEMESTER_2"
+    assert listed["created_at"]
+    assert listed["updated_at"]
 
     overlong_search_response = await client.get(
         "/api/v1/admin/supervisors",
@@ -67,6 +73,8 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
         f"/api/v1/admin/supervisors/{supervisor_id}",
         headers=headers,
         json={
+            "first_name": "Jonathan",
+            "last_name": "Smythe",
             "email": "john.smith@example.edu.au",
             "phone": "0499999999",
             "faculty_id": str(faculty.id),
@@ -76,6 +84,8 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
     )
     assert update_response.status_code == 200
     assert update_response.json()["profile"]["email"] == "john.smith@example.edu.au"
+    assert update_response.json()["profile"]["first_name"] == "Jonathan"
+    assert update_response.json()["profile"]["last_name"] == "Smythe"
 
     clear_nullable_response = await client.patch(
         f"/api/v1/admin/supervisors/{supervisor_id}",
@@ -117,6 +127,67 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
     )
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "INACTIVE"
+
+    password_response = await client.put(
+        f"/api/v1/admin/supervisors/{supervisor_id}/password",
+        headers=headers,
+        json={"new_password": "NewPassword123"},
+    )
+    assert password_response.status_code == 200
+    assert password_response.json()["message"] == "Supervisor password updated."
+
+    delete_response = await client.delete(
+        f"/api/v1/admin/supervisors/{supervisor_id}",
+        headers=headers,
+    )
+    assert delete_response.status_code == 204
+
+    missing_response = await client.get(
+        f"/api/v1/admin/supervisors/{supervisor_id}", headers=headers
+    )
+    assert missing_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_faculty_crud_workflow(client: AsyncClient, session: AsyncSession) -> None:
+    admin = User(
+        username="admin",
+        password_hash=hash_password("AdminPassword123!"),
+        role=UserRole.ADMIN,
+        status=AccountStatus.ACTIVE,
+    )
+    session.add(admin)
+    await session.commit()
+
+    login_response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "AdminPassword123!"},
+    )
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    create_response = await client.post(
+        "/api/v1/admin/faculties",
+        headers=headers,
+        json={"code": "ENG", "name": "Engineering"},
+    )
+    assert create_response.status_code == 201
+    faculty_id = create_response.json()["id"]
+
+    list_response = await client.get("/api/v1/admin/faculties", headers=headers)
+    assert list_response.status_code == 200
+    assert list_response.json()["items"][0]["supervisor_count"] == 0
+    assert list_response.json()["items"][0]["created_at"]
+
+    update_response = await client.patch(
+        f"/api/v1/admin/faculties/{faculty_id}",
+        headers=headers,
+        json={"name": "School of Engineering"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["name"] == "School of Engineering"
+
+    delete_response = await client.delete(f"/api/v1/admin/faculties/{faculty_id}", headers=headers)
+    assert delete_response.status_code == 204
 
 
 @pytest.mark.asyncio

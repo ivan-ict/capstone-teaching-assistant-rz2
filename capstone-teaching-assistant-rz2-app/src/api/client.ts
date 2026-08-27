@@ -46,6 +46,10 @@ interface FacultyDTO {
   id: string;
   code: string;
   name: string;
+  is_active?: boolean;
+  supervisor_count?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface SupervisorListItemDTO {
@@ -54,11 +58,16 @@ interface SupervisorListItemDTO {
   first_name: string;
   last_name: string;
   email: string;
+  phone: string | null;
+  teaching_year: number | null;
+  teaching_semester: TeachingSemesterDTO | null;
   status: AccountStatus;
   faculty: {
     id: string;
     name: string;
   };
+  created_at: string;
+  updated_at: string;
 }
 
 interface SupervisorDetailDTO {
@@ -103,6 +112,11 @@ interface ConversationMessageDTO {
     original_filename: string;
     mime_type?: string | null;
   }[];
+  sources?: {
+    file_id: string;
+    original_filename: string;
+    content: string;
+  }[];
   created_at: string;
 }
 
@@ -115,6 +129,13 @@ interface FileDTO {
   processing_error?: string | null;
   created_at: string;
   updated_at?: string;
+}
+
+interface FileContentDTO {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  content: string;
 }
 
 interface MessageCreateResponseDTO {
@@ -188,21 +209,42 @@ export class ApiClient {
     return response.items.map(mapFaculty);
   }
 
+  async listAdminFaculties(search = ''): Promise<Faculty[]> {
+    const searchParams = new URLSearchParams({ page: '1', page_size: '100', include_inactive: 'true' });
+    if (search) searchParams.set('search', search);
+    const response = await this.request<{ items: FacultyDTO[] }>(`/admin/faculties?${searchParams}`);
+    return response.items.map(mapFaculty);
+  }
+
+  async createFaculty(data: Pick<Faculty, 'name' | 'code'>): Promise<Faculty> {
+    const response = await this.request<FacultyDTO>('/admin/faculties', {
+      method: 'POST',
+      body: JSON.stringify({ name: data.name, code: data.code }),
+    });
+    return mapFaculty(response);
+  }
+
+  async updateFaculty(id: string, data: Partial<Faculty>): Promise<Faculty> {
+    const response = await this.request<FacultyDTO>(`/admin/faculties/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.code !== undefined ? { code: data.code } : {}),
+      }),
+    });
+    return mapFaculty(response);
+  }
+
+  async deleteFaculty(id: string): Promise<void> {
+    await this.request(`/admin/faculties/${id}`, { method: 'DELETE' });
+  }
+
   async listSupervisors(params: { search?: string; status?: AccountStatus } = {}): Promise<User[]> {
     const searchParams = new URLSearchParams({ page: '1', page_size: '100' });
     if (params.search) searchParams.set('search', params.search);
     if (params.status) searchParams.set('status', params.status);
     const response = await this.request<{ items: SupervisorListItemDTO[] }>(`/admin/supervisors?${searchParams}`);
-    const details = await Promise.all(
-      response.items.map(async item => {
-        try {
-          return await this.getSupervisor(item.id);
-        } catch {
-          return mapSupervisorListItem(item);
-        }
-      })
-    );
-    return details;
+    return response.items.map(mapSupervisorListItem);
   }
 
   async getSupervisor(id: string): Promise<User> {
@@ -238,6 +280,8 @@ export class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({
         ...(data.email !== undefined ? { email: data.email } : {}),
+        ...(data.firstName !== undefined ? { first_name: data.firstName } : {}),
+        ...(data.lastName !== undefined ? { last_name: data.lastName } : {}),
         ...(data.phone !== undefined ? { phone: data.phone } : {}),
         ...(data.faculty !== undefined ? { faculty_id: faculty?.id || data.faculty } : {}),
         ...(data.teachingYear !== undefined ? { teaching_year: data.teachingYear ? Number(data.teachingYear) : null } : {}),
@@ -251,6 +295,17 @@ export class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
+  }
+
+  resetSupervisorPassword(id: string, newPassword: string): Promise<{ id: string; message: string }> {
+    return this.request(`/admin/supervisors/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ new_password: newPassword }),
+    });
+  }
+
+  deleteSupervisor(id: string): Promise<void> {
+    return this.request(`/admin/supervisors/${id}`, { method: 'DELETE' });
   }
 
   async listProjects(): Promise<Project[]> {
@@ -283,7 +338,13 @@ export class ApiClient {
   }
 
   async listConversations(): Promise<Conversation[]> {
-    const response = await this.request<{ items: ConversationDTO[] }>('/conversations');
+    const response = await this.request<{ items: ConversationDTO[] }>('/conversations?page=1&page_size=100');
+    return response.items.map(mapConversation);
+  }
+
+  async searchConversations(query: string): Promise<Conversation[]> {
+    const params = new URLSearchParams({ query, page: '1', page_size: '100' });
+    const response = await this.request<{ items: ConversationDTO[] }>(`/conversations/search?${params}`);
     return response.items.map(mapConversation);
   }
 
@@ -331,6 +392,10 @@ export class ApiClient {
     });
   }
 
+  async dissociateConversationFile(conversationId: string, fileId: string): Promise<void> {
+    await this.request(`/conversations/${conversationId}/files/${fileId}`, { method: 'DELETE' });
+  }
+
   async listFiles(search = ''): Promise<AttachedFile[]> {
     const searchParams = new URLSearchParams({ page: '1', page_size: '100' });
     if (search) searchParams.set('search', search);
@@ -351,6 +416,18 @@ export class ApiClient {
 
   async deleteFile(id: string): Promise<void> {
     await this.request(`/files/${id}`, { method: 'DELETE' });
+  }
+
+  async deleteFilesBulk(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    await this.request('/files/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ file_ids: ids }),
+    });
+  }
+
+  async getFileContent(id: string): Promise<FileContentDTO> {
+    return this.request(`/files/${id}/content`);
   }
 
   downloadUrl(id: string): string {
@@ -474,8 +551,9 @@ function mapFaculty(dto: FacultyDTO): Faculty {
     code: dto.code,
     name: dto.name,
     departmentHead: 'Unassigned',
-    createdAt: '',
-    updatedAt: '',
+    activeSupervisorsCount: dto.supervisor_count,
+    createdAt: dto.created_at || '',
+    updatedAt: dto.updated_at || '',
   };
 }
 
@@ -487,14 +565,14 @@ function mapSupervisorListItem(dto: SupervisorListItemDTO): User {
     lastName: dto.last_name,
     fullName: `${dto.first_name} ${dto.last_name}`.trim(),
     email: dto.email,
-    phone: '',
-    teachingYear: '',
-    teachingSemester: '',
+    phone: dto.phone || '',
+    teachingYear: dto.teaching_year ? String(dto.teaching_year) : '',
+    teachingSemester: fromApiSemester(dto.teaching_semester),
     faculty: dto.faculty.name,
     role: 'supervisor',
     status: dto.status === 'ACTIVE' ? 'active' : 'suspended',
-    createdAt: '',
-    updatedAt: '',
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
   };
 }
 
@@ -555,6 +633,7 @@ function mapMessage(dto: ConversationMessageDTO): Message {
       uploadedAt: dto.created_at,
       isImage: Boolean(file.mime_type?.startsWith('image/')),
     })),
+    references: dto.sources?.map(source => `${source.original_filename}: ${source.content}`),
   };
 }
 
