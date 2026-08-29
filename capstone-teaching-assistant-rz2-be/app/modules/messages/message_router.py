@@ -54,8 +54,8 @@ async def stream_message(
     session: DatabaseSessionDependency,
 ):
     service = MessageService(session)
-    await service.ensure_streamable_assistant_message(current_user.id, message_id)
-    stream = service.stream_assistant_response(current_user.id, message_id)
+    generation_context = await service.prepare_assistant_stream(current_user.id, message_id)
+    stream = service.stream_assistant_response(generation_context)
     return StreamingResponse(stream, media_type="text/event-stream")
 
 

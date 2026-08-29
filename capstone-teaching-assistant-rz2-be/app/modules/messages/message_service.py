@@ -1,7 +1,6 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any
 from uuid import UUID
 
 from fastapi import status
@@ -24,7 +23,7 @@ from app.modules.messages.message_model import (
     MessageRetryResponseDTO,
     RetrievedChunkDTO,
 )
-from app.modules.messages.message_repository import MessageRepository
+from app.modules.messages.message_repository import MessageGenerationContext, MessageRepository
 
 
 class MessageService:
@@ -52,17 +51,14 @@ class MessageService:
         content: str,
         file_ids: list[UUID],
     ) -> MessageCreateResponseDTO:
-        conversation = await self.repository.lock_conversation_for_supervisor(
+        creation_context = await self.repository.lock_message_creation_context(
             conversation_id, supervisor_id
         )
-        if conversation is None:
+        if creation_context is None:
             raise NotFoundError("Conversation not found.")
+        _conversation, preselected_file_ids, user_sequence = creation_context
 
-        unique_file_ids = list(
-            dict.fromkeys(
-                [*await self.repository.list_preselected_file_ids(conversation_id), *file_ids]
-            )
-        )
+        unique_file_ids = list(dict.fromkeys([*preselected_file_ids, *file_ids]))
         message_content = content or self.file_only_prompt
         if not content and not unique_file_ids:
             raise ApiError(
@@ -75,8 +71,10 @@ class MessageService:
                 "FILE_LIMIT_EXCEEDED",
                 f"At most {MAX_FILE_IDS_PER_CHAT_CONTEXT} files can be used for one message.",
             )
-        files = await self.repository.list_files_by_ids_for_supervisor(
-            unique_file_ids, supervisor_id
+        files = (
+            await self.repository.list_files_by_ids_for_supervisor(unique_file_ids, supervisor_id)
+            if unique_file_ids
+            else []
         )
         if {file.id for file in files} != set(unique_file_ids):
             raise NotFoundError("File not found.")
@@ -91,25 +89,12 @@ class MessageService:
                 f"Files are not ready for chat: {', '.join(not_ready_files)}.",
             )
 
-        user_sequence = await self.repository.next_sequence_no(conversation_id)
-        user_message = await self.repository.create_message(
+        user_message, assistant_message = await self.repository.add_message_pair(
             conversation_id,
-            MessageRole.USER,
             message_content,
-            MessageStatus.COMPLETED,
             user_sequence,
+            unique_file_ids,
         )
-        assistant_message = await self.repository.create_message(
-            conversation_id,
-            MessageRole.ASSISTANT,
-            "",
-            MessageStatus.PENDING,
-            user_sequence + 1,
-        )
-        if unique_file_ids:
-            await self.repository.associate_files_to_message(
-                conversation_id, user_message.id, unique_file_ids
-            )
 
         await self.session.commit()
         return MessageCreateResponseDTO(
@@ -119,10 +104,9 @@ class MessageService:
         )
 
     async def stream_assistant_response(
-        self, supervisor_id: UUID, message_id: UUID
+        self, generation_context: MessageGenerationContext
     ) -> AsyncIterator[str]:
-        assistant_message = await self._get_assistant_message(supervisor_id, message_id)
-        self._ensure_pending_assistant_message(assistant_message)
+        assistant_message = generation_context.assistant_message
         if not await self.repository.claim_pending_assistant_message(assistant_message):
             yield self._sse(
                 "error",
@@ -137,37 +121,70 @@ class MessageService:
         await self.session.commit()
         try:
             yield self._sse("start", {"message_id": str(assistant_message.id)})
-            user_message = await self.repository.previous_user_message(assistant_message)
+            user_message = generation_context.user_message
             if user_message is None:
                 raise ApiError("CHAT_CONTEXT_MISSING", "Assistant message has no user prompt.")
 
-            query_embedding = await self.embeddings.embed_query(user_message.content)
+            embedding_task: asyncio.Task[list[float]] | None = None
+            if user_message.embedding is None:
+                embedding_task = asyncio.create_task(
+                    self.embeddings.embed_query(user_message.content)
+                )
+            try:
+                history = await self.repository.list_history_before(assistant_message)
+                query_embedding = (
+                    await embedding_task
+                    if embedding_task is not None
+                    else user_message.embedding
+                )
+            except BaseException:
+                if embedding_task is not None:
+                    if not embedding_task.done():
+                        embedding_task.cancel()
+                    await asyncio.gather(embedding_task, return_exceptions=True)
+                raise
+            if query_embedding is None:
+                raise ApiError("INVALID_EMBEDDING", "User message embedding is missing.")
             self._validate_embedding(query_embedding)
-            await self.repository.set_message_embedding(user_message, query_embedding)
-            context_rows = await self.repository.retrieve_chunks(
-                await self.repository.list_message_file_ids(user_message.id),
+            user_message.embedding = query_embedding
+
+            context_rows = (
+                await self.repository.retrieve_chunks(
+                    generation_context.file_ids,
+                    query_embedding,
+                    self.settings.rag_top_k,
+                )
+                if generation_context.file_ids
+                else []
+            )
+            context = [
+                RetrievedChunkDTO(
+                    chunk_id=chunk.id,
+                    file_id=file.id,
+                    original_filename=file.original_filename,
+                    content=chunk.content,
+                )
+                for chunk, file in context_rows
+            ]
+            relevant_messages = await self.repository.retrieve_messages(
+                user_message.conversation_id,
+                user_message.sequence_no,
                 query_embedding,
                 self.settings.rag_top_k,
-            )
-            context = self._retrieved_chunk_dtos(context_rows)
-            relevant_messages = await self._retrieve_relevant_messages(
-                user_message,
-                query_embedding,
-            )
-            history = await self.repository.list_history_before(assistant_message)
-            project_instructions = await self._project_instructions(
-                assistant_message.conversation_id, supervisor_id
+                {message.id for message in history},
             )
             system_prompt = self._build_system_prompt(
                 context,
                 relevant_messages,
-                project_instructions,
+                generation_context.project_instructions,
             )
             chat_history = [
                 (message.role.value, message.content)
                 for message in history
-                if message.id not in {user_message.id, assistant_message.id}
+                if message.id != user_message.id
             ]
+            source_payloads = self._source_payloads(context)
+            await self.session.commit()
 
             async for token in self.chat.stream_answer(
                 system_prompt,
@@ -182,13 +199,13 @@ class MessageService:
                 raise ApiError("EMPTY_AI_RESPONSE", "AI response was empty.")
             assistant_embedding = (await self.embeddings.embed_documents([assistant_content]))[0]
             self._validate_embedding(assistant_embedding)
-            await self.repository.set_message_embedding(assistant_message, assistant_embedding)
-            await self.repository.set_message_state(
+            self.repository.set_message_state(
                 assistant_message,
                 assistant_content,
                 MessageStatus.COMPLETED,
+                assistant_embedding,
+                source_payloads,
             )
-            assistant_message.sources = self._source_payloads(context)
             await self.session.commit()
             generation_finished = True
             yield self._sse(
@@ -196,7 +213,7 @@ class MessageService:
                 {
                     "message_id": str(assistant_message.id),
                     "status": MessageStatus.COMPLETED.value,
-                    "sources": self._source_payloads(context),
+                    "sources": source_payloads,
                 },
             )
         except asyncio.CancelledError:
@@ -221,12 +238,17 @@ class MessageService:
         self, supervisor_id: UUID, message_id: UUID
     ) -> MessageRetryResponseDTO:
         assistant_message = await self._get_assistant_message(supervisor_id, message_id)
-        self._ensure_retryable_assistant_message(assistant_message)
-        assistant_message = await self.repository.set_message_state(
+        if assistant_message.status == MessageStatus.GENERATING:
+            raise ApiError(
+                "INVALID_MESSAGE_STATUS",
+                "Assistant messages cannot be retried while generation is in progress.",
+                status.HTTP_409_CONFLICT,
+            )
+        assistant_message = self.repository.set_message_state(
             assistant_message,
             "",
             MessageStatus.PENDING,
-            clear_embedding=True,
+            None,
         )
         await self.session.commit()
         return MessageRetryResponseDTO(
@@ -234,38 +256,21 @@ class MessageService:
             stream_url=f"/api/v1/messages/{assistant_message.id}/stream",
         )
 
-    async def ensure_assistant_message(self, supervisor_id: UUID, message_id: UUID) -> None:
-        await self._get_assistant_message(supervisor_id, message_id)
-
-    async def ensure_streamable_assistant_message(
+    async def prepare_assistant_stream(
         self, supervisor_id: UUID, message_id: UUID
-    ) -> None:
-        assistant_message = await self._get_assistant_message(supervisor_id, message_id)
-        self._ensure_pending_assistant_message(assistant_message)
-
-    async def _retrieve_context(
-        self, user_message: Message, query_embedding: list[float]
-    ) -> list[RetrievedChunkDTO]:
-        file_ids = await self.repository.list_message_file_ids(user_message.id)
-        if not file_ids:
-            return []
-        retrieved = await self.repository.retrieve_chunks(
-            file_ids,
-            query_embedding,
-            self.settings.rag_top_k,
+    ) -> MessageGenerationContext:
+        generation_context = await self.repository.get_message_generation_context(
+            message_id, supervisor_id
         )
-        return self._retrieved_chunk_dtos(retrieved)
-
-    def _retrieved_chunk_dtos(self, retrieved: list[tuple[Any, Any]]) -> list[RetrievedChunkDTO]:
-        return [
-            RetrievedChunkDTO(
-                chunk_id=chunk.id,
-                file_id=file.id,
-                original_filename=file.original_filename,
-                content=chunk.content,
+        if generation_context is None:
+            raise NotFoundError("Message not found.")
+        assistant_message = generation_context.assistant_message
+        if assistant_message.role != MessageRole.ASSISTANT:
+            raise ApiError(
+                "INVALID_MESSAGE_ROLE", "Only Assistant messages can be streamed or retried."
             )
-            for chunk, file in retrieved
-        ]
+        self._ensure_pending_assistant_message(assistant_message)
+        return generation_context
 
     def _source_payloads(self, sources: list[RetrievedChunkDTO]) -> list[dict[str, object]]:
         return [
@@ -277,24 +282,6 @@ class MessageService:
             }
             for source in sources
         ]
-
-    async def _retrieve_relevant_messages(
-        self, user_message: Message, query_embedding: list[float]
-    ) -> list[Message]:
-        return await self.repository.retrieve_messages(
-            user_message.conversation_id,
-            user_message.sequence_no,
-            query_embedding,
-            self.settings.rag_top_k,
-        )
-
-    async def _project_instructions(self, conversation_id: UUID, supervisor_id: UUID) -> str | None:
-        conversation = await self.repository.get_conversation_for_supervisor(
-            conversation_id, supervisor_id
-        )
-        if conversation is None or conversation.project is None:
-            return None
-        return conversation.project.instructions
 
     async def _get_assistant_message(self, supervisor_id: UUID, message_id: UUID) -> Message:
         message = await self.repository.get_message_for_supervisor(message_id, supervisor_id)
@@ -311,14 +298,6 @@ class MessageService:
             raise ApiError(
                 "INVALID_MESSAGE_STATUS",
                 "Only pending Assistant messages can be streamed.",
-                status.HTTP_409_CONFLICT,
-            )
-
-    def _ensure_retryable_assistant_message(self, message: Message) -> None:
-        if message.status == MessageStatus.GENERATING:
-            raise ApiError(
-                "INVALID_MESSAGE_STATUS",
-                "Assistant messages cannot be retried while generation is in progress.",
                 status.HTTP_409_CONFLICT,
             )
 
@@ -373,10 +352,10 @@ class MessageService:
         self, assistant_message: Message, collected_tokens: list[str]
     ) -> None:
         await self.session.rollback()
-        await self.repository.set_message_state(
+        self.repository.set_message_state(
             assistant_message,
             "".join(collected_tokens),
             MessageStatus.FAILED,
-            clear_embedding=True,
+            None,
         )
         await self.session.commit()

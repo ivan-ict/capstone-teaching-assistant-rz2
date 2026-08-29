@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import cast
+from uuid import UUID
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,13 @@ class BlankChat:
         yield "   "
 
 
+async def prepared_stream(service: MessageService, message_id: UUID) -> AsyncIterator[str]:
+    generation_context = await service.prepare_assistant_stream(
+        DEV_SUPERVISOR_ID, message_id
+    )
+    return service.stream_assistant_response(generation_context)
+
+
 @pytest.mark.asyncio
 async def test_create_message_pair_then_stream_and_retry(session: AsyncSession) -> None:
     conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
@@ -81,12 +89,7 @@ async def test_create_message_pair_then_stream_and_retry(session: AsyncSession) 
     assert created.assistant_message.sequence_no == 2
     assert created.assistant_message.status == MessageStatus.PENDING
 
-    events = [
-        event
-        async for event in service.stream_assistant_response(
-            DEV_SUPERVISOR_ID, created.assistant_message.id
-        )
-    ]
+    events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
 
     assert "event: complete" in events[-1]
 
@@ -148,12 +151,7 @@ async def test_stream_uses_only_completed_non_empty_history(session: AsyncSessio
         [],
     )
 
-    events = [
-        event
-        async for event in service.stream_assistant_response(
-            DEV_SUPERVISOR_ID, created.assistant_message.id
-        )
-    ]
+    events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
 
     assert "event: complete" in events[-1]
     assert chat.chat_history == [("USER", "Previous complete question")]
@@ -181,12 +179,7 @@ async def test_stream_excludes_current_prompt_from_relevant_prior_messages(
         [],
     )
 
-    events = [
-        event
-        async for event in service.stream_assistant_response(
-            DEV_SUPERVISOR_ID, created.assistant_message.id
-        )
-    ]
+    events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
 
     assert "event: complete" in events[-1]
     assert chat.system_prompt is not None
@@ -238,9 +231,7 @@ async def test_stream_cancellation_marks_assistant_failed(session: AsyncSession)
     with pytest.raises(asyncio.CancelledError):
         _events = [
             event
-            async for event in service.stream_assistant_response(
-                DEV_SUPERVISOR_ID, created.assistant_message.id
-            )
+            async for event in await prepared_stream(service, created.assistant_message.id)
         ]
 
     assistant_message = await session.get(Message, created.assistant_message.id)
@@ -267,12 +258,7 @@ async def test_stream_blank_ai_response_marks_assistant_failed(session: AsyncSes
         [],
     )
 
-    events = [
-        event
-        async for event in service.stream_assistant_response(
-            DEV_SUPERVISOR_ID, created.assistant_message.id
-        )
-    ]
+    events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
 
     assistant_message = await session.get(Message, created.assistant_message.id)
     assert "event: error" in events[-1]
@@ -300,8 +286,7 @@ async def test_stream_close_after_start_marks_assistant_failed(session: AsyncSes
     )
 
     stream = cast(
-        AsyncGenerator[str],
-        service.stream_assistant_response(DEV_SUPERVISOR_ID, created.assistant_message.id),
+        AsyncGenerator[str], await prepared_stream(service, created.assistant_message.id)
     )
     start_event = await anext(stream)
     await stream.aclose()
@@ -334,8 +319,7 @@ async def test_stream_close_after_complete_keeps_assistant_completed(
     )
 
     stream = cast(
-        AsyncGenerator[str],
-        service.stream_assistant_response(DEV_SUPERVISOR_ID, created.assistant_message.id),
+        AsyncGenerator[str], await prepared_stream(service, created.assistant_message.id)
     )
     events: list[str] = []
     while True:
