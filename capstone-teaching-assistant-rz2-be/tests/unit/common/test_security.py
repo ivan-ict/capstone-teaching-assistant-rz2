@@ -54,6 +54,11 @@ def test_unsupported_jwt_algorithm_is_rejected(monkeypatch: pytest.MonkeyPatch) 
         ("CHUNK_OVERLAP", "-1"),
         ("MAX_UPLOAD_BYTES", "0"),
         ("ACCESS_TOKEN_EXPIRE_MINUTES", "0"),
+        ("OLLAMA_CHAT_TEMPERATURE", "-0.1"),
+        ("OLLAMA_CHAT_NUM_PREDICT", "0"),
+        ("OLLAMA_CHAT_NUM_CTX", "0"),
+        ("OLLAMA_CHAT_NUM_THREAD", "0"),
+        ("OLLAMA_CHAT_NUM_GPU", "-1"),
     ],
 )
 def test_invalid_numeric_settings_are_rejected(
@@ -62,6 +67,51 @@ def test_invalid_numeric_settings_are_rejected(
     monkeypatch.setenv(env_name, env_value)
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_ollama_generation_settings_load_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLLAMA_CHAT_TEMPERATURE", "0.1")
+    monkeypatch.setenv("OLLAMA_CHAT_NUM_PREDICT", "256")
+    monkeypatch.setenv("OLLAMA_CHAT_NUM_CTX", "4096")
+    monkeypatch.setenv("OLLAMA_CHAT_REASONING", "false")
+    monkeypatch.setenv("OLLAMA_CHAT_KEEP_ALIVE", "10m")
+    monkeypatch.setenv("OLLAMA_CHAT_NUM_THREAD", "8")
+    monkeypatch.setenv("OLLAMA_CHAT_NUM_GPU", "1")
+
+    settings = Settings()
+
+    assert settings.ollama_chat_temperature == 0.1
+    assert settings.ollama_chat_num_predict == 256
+    assert settings.ollama_chat_num_ctx == 4096
+    assert settings.ollama_chat_reasoning is False
+    assert settings.ollama_chat_keep_alive == "10m"
+    assert settings.ollama_chat_num_thread == 8
+    assert settings.ollama_chat_num_gpu == 1
+
+
+def test_optional_ollama_generation_settings_delegate_to_ollama_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for env_name in (
+        "OLLAMA_CHAT_NUM_PREDICT",
+        "OLLAMA_CHAT_NUM_CTX",
+        "OLLAMA_CHAT_REASONING",
+        "OLLAMA_CHAT_KEEP_ALIVE",
+        "OLLAMA_CHAT_NUM_THREAD",
+        "OLLAMA_CHAT_NUM_GPU",
+    ):
+        monkeypatch.delenv(env_name, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ollama_chat_num_predict is None
+    assert settings.ollama_chat_num_ctx is None
+    assert settings.ollama_chat_reasoning is None
+    assert settings.ollama_chat_keep_alive is None
+    assert settings.ollama_chat_num_thread is None
+    assert settings.ollama_chat_num_gpu is None
 
 
 def test_invalid_chunk_overlap_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

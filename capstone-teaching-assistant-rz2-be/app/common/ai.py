@@ -41,7 +41,13 @@ class OllamaChatProvider:
         self._chat = ChatOllama(
             model=settings.ollama_chat_model,
             base_url=settings.ollama_base_url,
-            temperature=0.2,
+            temperature=settings.ollama_chat_temperature,
+            num_predict=settings.ollama_chat_num_predict,
+            num_ctx=settings.ollama_chat_num_ctx,
+            reasoning=settings.ollama_chat_reasoning,
+            keep_alive=settings.ollama_chat_keep_alive,
+            num_thread=settings.ollama_chat_num_thread,
+            num_gpu=settings.ollama_chat_num_gpu,
         )
 
     async def stream_answer(

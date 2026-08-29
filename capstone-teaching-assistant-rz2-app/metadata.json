@@ -1,6 +1,6 @@
 {
-  "name": "Capstone Teaching Assistant",
-  "description": "Capstone Teaching Assistant (CTA) - A responsive AI teaching assistant platform featuring Supervisor and Admin workflows, project contexts, file library, and ChatGPT-style interactions.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+    "name": "Capstone Teaching Assistant",
+    "description": "Capstone Teaching Assistant (CTA) - A responsive AI teaching assistant platform featuring Supervisor and Admin workflows, project contexts, file library.",
+    "requestFramePermissions": [],
+    "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

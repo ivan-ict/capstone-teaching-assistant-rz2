@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     rustfs_bucket_name: str = "capstone-files"
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen3"
+    # ollama_chat_model: str = "qwen3-vl:2b"
+    ollama_chat_temperature: float = Field(default=0.2, ge=0)
+    ollama_chat_num_predict: int | None = Field(default=None, gt=0)
+    ollama_chat_num_ctx: int | None = Field(default=None, gt=0)
+    ollama_chat_reasoning: bool | None = None
+    ollama_chat_keep_alive: int | str | None = None
+    ollama_chat_num_thread: int | None = Field(default=None, gt=0)
+    ollama_chat_num_gpu: int | None = Field(default=None, ge=0)
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimension: int = Field(default=1024, gt=0)
     rag_top_k: int = Field(default=5, gt=0)

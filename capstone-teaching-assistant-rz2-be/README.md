@@ -123,6 +123,7 @@ RUSTFS_ENDPOINT_URL=http://localhost:9000
 RUSTFS_BUCKET_NAME=capstone-files
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_CHAT_MODEL=qwen3
+OLLAMA_CHAT_TEMPERATURE=0.2
 OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
 EMBEDDING_DIMENSION=1024
 RAG_TOP_K=5
@@ -131,6 +132,12 @@ CHUNK_OVERLAP=200
 MAX_UPLOAD_BYTES=10485760
 CORS_ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:8501"]
 ```
+
+Optional Ollama chat controls are documented in `.env.example`. In particular,
+`OLLAMA_CHAT_NUM_PREDICT` limits output tokens, `OLLAMA_CHAT_REASONING` controls
+model reasoning, and `OLLAMA_CHAT_KEEP_ALIVE` reduces repeated model load time.
+Context, thread, and GPU overrides are also available but should be tuned for the
+host rather than enabled as portable defaults.
 
 The migrations seed reference Faculty data. The local admin seed script creates:
 
