@@ -6,7 +6,6 @@ import {
   FileText, 
   Image as ImageIcon, 
   Check, 
-  Upload, 
   Folder, 
   Layers 
 } from 'lucide-react';
@@ -22,7 +21,6 @@ export const ProjectSettingsModal: React.FC = () => {
     projects,
     libraryFiles, 
     removeFileFromProject,
-    uploadFiles 
   } = useApp();
 
   const [name, setName] = useState('');
@@ -63,11 +61,6 @@ export const ProjectSettingsModal: React.FC = () => {
     updateProject(projectToEdit.id, cleanName, instructions);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);
-  };
-
-  const handleUploadNewProjectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    await uploadFiles(e.target.files, projectToEdit.id);
   };
 
   return (
@@ -204,16 +197,7 @@ export const ProjectSettingsModal: React.FC = () => {
                   </p>
                 </div>
 
-                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold cursor-pointer transition">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>Upload File</span>
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleUploadNewProjectFile}
-                  />
-                </label>
+                {/* Direct project uploads are hidden until the backend supports project files. */}
               </div>
 
               {projectFiles.length === 0 ? (

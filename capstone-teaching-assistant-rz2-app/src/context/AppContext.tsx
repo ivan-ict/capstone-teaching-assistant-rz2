@@ -56,10 +56,9 @@ interface AppContextType {
   moveConversationToProject: (conversationId: string, projectId: string | null) => Promise<void>;
   sendMessage: (content: string, attachedFiles?: AttachedFile[]) => Promise<void>;
   isGeneratingResponse: boolean;
-  uploadFiles: (files: FileList | File[], projectId?: string | null) => Promise<AttachedFile[]>;
+  uploadFiles: (files: FileList | File[]) => Promise<AttachedFile[]>;
   deleteFile: (fileId: string) => Promise<void>;
   deleteFilesBulk: (fileIds: string[]) => Promise<void>;
-  assignFileToProject: (fileId: string, projectId: string | null) => Promise<void>;
   removeFileFromProject: (projectId: string, fileId: string) => Promise<void>;
   downloadFile: (file: AttachedFile) => Promise<void>;
   isSearchModalOpen: boolean;
@@ -601,21 +600,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const uploadFiles = async (files: FileList | File[], projectId: string | null = null): Promise<AttachedFile[]> => {
+  const uploadFiles = async (files: FileList | File[]): Promise<AttachedFile[]> => {
     const uploaded: AttachedFile[] = [];
     for (const file of Array.from(files)) {
       try {
         const apiFile = await api.uploadFile(file);
-        uploaded.push({ ...apiFile, projectId });
+        uploaded.push(apiFile);
       } catch (error) {
         showError(error, `Could not upload ${file.name}.`);
       }
     }
     if (uploaded.length) {
       setLibraryFiles(prev => [...uploaded, ...prev]);
-    }
-    if (projectId && activeConversationId && uploaded.length) {
-      await api.associateConversationFiles(activeConversationId, uploaded.map(file => file.id)).catch(() => undefined);
     }
     return uploaded;
   };
@@ -649,19 +645,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })));
     } catch (error) {
       showError(error, 'Could not delete selected files.');
-    }
-  };
-
-  const assignFileToProject = async (fileId: string, projectId: string | null) => {
-    if (!activeConversationId || !projectId) {
-      alert('Files become project context through conversations. Select a project conversation before assigning files.');
-      return;
-    }
-    try {
-      await api.associateConversationFiles(activeConversationId, [fileId]);
-      await refreshSupervisorData();
-    } catch (error) {
-      showError(error, 'Could not attach file to the active conversation.');
     }
   };
 
@@ -774,7 +757,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         uploadFiles,
         deleteFile,
         deleteFilesBulk,
-        assignFileToProject,
         removeFileFromProject,
         downloadFile,
         isSearchModalOpen,

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     ollama_chat_keep_alive: int | str | None = None
     ollama_chat_num_thread: int | None = Field(default=None, gt=0)
     ollama_chat_num_gpu: int | None = Field(default=None, ge=0)
+    ollama_vision_model: str = "qwen3-vl:2b"
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimension: int = Field(default=1024, gt=0)
     rag_top_k: int = Field(default=5, gt=0)

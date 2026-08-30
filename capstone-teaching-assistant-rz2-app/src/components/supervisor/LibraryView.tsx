@@ -20,6 +20,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { AttachedFile } from '../../types';
 import { formatBytes, formatDate } from '../../utils/formatters';
+import { SUPPORTED_UPLOAD_ACCEPT } from '../../constants/files';
 
 export const LibraryView: React.FC = () => {
   const { 
@@ -37,7 +38,6 @@ export const LibraryView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadTargetProjectId, setUploadTargetProjectId] = useState<string>('UNCATEGORISED');
   const [isUploading, setIsUploading] = useState(false);
 
   // Deletion modal state
@@ -135,8 +135,7 @@ export const LibraryView: React.FC = () => {
   const handleUploadSubmit = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     setIsUploading(true);
-    const targetProj = uploadTargetProjectId === 'UNCATEGORISED' ? null : uploadTargetProjectId;
-    await uploadFiles(e.target.files, targetProj);
+    await uploadFiles(e.target.files);
     setIsUploading(false);
     setIsUploadModalOpen(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -499,24 +498,7 @@ export const LibraryView: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              {/* Destination Project Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Destination Project
-                </label>
-                <select
-                  value={uploadTargetProjectId}
-                  onChange={(e) => setUploadTargetProjectId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                >
-                  <option value="UNCATEGORISED">Uncategorised</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Direct project upload is intentionally unavailable; uploads are Uncategorised. */}
 
               {/* Drag & drop or Browse file box */}
               <div 
@@ -527,6 +509,8 @@ export const LibraryView: React.FC = () => {
                   ref={fileInputRef}
                   type="file"
                   multiple
+                  accept={SUPPORTED_UPLOAD_ACCEPT}
+                  disabled={isUploading}
                   className="hidden"
                   onChange={handleUploadSubmit}
                 />
@@ -537,7 +521,7 @@ export const LibraryView: React.FC = () => {
                   Click to select files & images from your computer
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Supports PDF, DOCX, CSV, PNG, JPG, JSON, Code, etc.
+                  Supports TXT, MD, PDF, DOCX, JPG, PNG, and WebP.
                 </p>
               </div>
             </div>

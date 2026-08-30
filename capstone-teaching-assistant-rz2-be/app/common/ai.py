@@ -1,3 +1,4 @@
+import base64
 from collections.abc import AsyncIterator
 from typing import Protocol
 
@@ -22,6 +23,10 @@ class ChatProvider(Protocol):
     ) -> AsyncIterator[str]: ...
 
 
+class ImageDescriptionProvider(Protocol):
+    async def describe_image(self, content: bytes, mime_type: str) -> str: ...
+
+
 class OllamaEmbeddingProvider:
     def __init__(self, settings: Settings) -> None:
         self._embeddings = OllamaEmbeddings(
@@ -34,6 +39,44 @@ class OllamaEmbeddingProvider:
 
     async def embed_query(self, text: str) -> list[float]:
         return await self._embeddings.aembed_query(text)
+
+
+class OllamaImageDescriptionProvider:
+    def __init__(self, settings: Settings) -> None:
+        self._chat = ChatOllama(
+            model=settings.ollama_vision_model,
+            base_url=settings.ollama_base_url,
+            temperature=0,
+        )
+
+    async def describe_image(self, content: bytes, mime_type: str) -> str:
+        image = base64.b64encode(content).decode("ascii")
+        message = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": (
+                        "Describe this image as standalone text for document retrieval. Include "
+                        "the visible subjects, setting, important details, spatial relationships, "
+                        "diagram or chart structure, labels, and all legible text. State "
+                        "uncertainty when a detail is unclear and do not infer facts that are "
+                        "not visible."
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": f"data:{mime_type};base64,{image}",
+                },
+            ]
+        )
+        response = await self._chat.ainvoke([message])
+        if isinstance(response.content, str):
+            return response.content.strip()
+        return "\n".join(
+            str(block["text"]).strip()
+            for block in response.content
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+        ).strip()
 
 
 class OllamaChatProvider:

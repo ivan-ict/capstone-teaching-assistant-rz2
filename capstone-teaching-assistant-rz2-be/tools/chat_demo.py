@@ -1,8 +1,12 @@
 import json
+import mimetypes
 from typing import Any
 
 import httpx
 import streamlit as st
+
+SUPPORTED_UPLOAD_EXTENSIONS = ["txt", "md", "pdf", "docx", "jpg", "jpeg", "png", "webp"]
+UPLOAD_TIMEOUT_SECONDS = 300.0
 
 
 def api_base_url() -> str:
@@ -15,7 +19,8 @@ def auth_headers(token: str | None) -> dict[str, str]:
 
 def request_json(method: str, url: str, token: str | None = None, **kwargs: Any) -> dict[str, Any]:
     headers = {**auth_headers(token), **kwargs.pop("headers", {})}
-    with httpx.Client(timeout=60.0, follow_redirects=False) as client:
+    timeout = kwargs.pop("timeout", 60.0)
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
         response = client.request(method, url, headers=headers, **kwargs)
     if response.status_code >= 400:
         st.error(response.text)
@@ -23,6 +28,25 @@ def request_json(method: str, url: str, token: str | None = None, **kwargs: Any)
     if not response.content:
         return {}
     return response.json()
+
+
+def upload_file_payload(uploaded: Any) -> dict[str, tuple[str, bytes, str]]:
+    mime_type = (
+        getattr(uploaded, "type", None)
+        or mimetypes.guess_type(uploaded.name)[0]
+        or "application/octet-stream"
+    )
+    return {"file": (uploaded.name, uploaded.getvalue(), mime_type)}
+
+
+def merge_attachment_ids(
+    draft_files: list[dict[str, str]],
+    selected_labels: list[str],
+    selectable_files: dict[str, str],
+) -> list[str]:
+    draft_ids = [file["id"] for file in draft_files]
+    library_ids = [selectable_files[label] for label in selected_labels]
+    return list(dict.fromkeys([*draft_ids, *library_ids]))
 
 
 def login(base_url: str, username: str, password: str) -> None:
@@ -129,20 +153,60 @@ def main() -> None:
         return
 
     conversation_id = st.session_state["conversation_id"]
+    drafts = st.session_state.setdefault("draft_files_by_conversation", {})
+    draft_files = drafts.setdefault(conversation_id, [])
+    upload_generations = st.session_state.setdefault("upload_widget_generations", {})
+    upload_generation = upload_generations.setdefault(conversation_id, 0)
+    library_generations = st.session_state.setdefault("library_widget_generations", {})
+    library_generation = library_generations.setdefault(conversation_id, 0)
 
     with st.sidebar:
         st.divider()
-        uploaded = st.file_uploader("Upload text file", type=["txt"])
-        if uploaded and st.button("Upload to library", use_container_width=True):
-            files = {"file": (uploaded.name, uploaded.getvalue(), "text/plain")}
-            created_file = request_json("POST", f"{base_url}/files", token=token, files=files)
-            request_json(
-                "POST",
-                f"{base_url}/conversations/{conversation_id}/files",
-                token=token,
-                json={"file_ids": [created_file["id"]]},
-            )
-            st.rerun()
+        uploaded_files = st.file_uploader(
+            "Add files to this message",
+            type=SUPPORTED_UPLOAD_EXTENSIONS,
+            accept_multiple_files=True,
+            key=f"draft_upload_{conversation_id}_{upload_generation}",
+        )
+        if uploaded_files and st.button("Upload and index attachments", use_container_width=True):
+            uploaded_any = False
+            with st.spinner("Uploading and indexing attachments..."):
+                for uploaded in uploaded_files:
+                    try:
+                        created_file = request_json(
+                            "POST",
+                            f"{base_url}/files",
+                            token=token,
+                            files=upload_file_payload(uploaded),
+                            timeout=UPLOAD_TIMEOUT_SECONDS,
+                        )
+                    except httpx.HTTPError:
+                        continue
+                    if created_file.get("processing_status") != "READY":
+                        st.error(f"{uploaded.name} was uploaded but is not ready to attach.")
+                        continue
+                    draft_files.append(
+                        {
+                            "id": created_file["id"],
+                            "name": created_file["original_filename"],
+                        }
+                    )
+                    uploaded_any = True
+            if uploaded_any:
+                upload_generations[conversation_id] += 1
+                st.rerun()
+
+        if draft_files:
+            st.caption("Ready draft attachments")
+            for draft_file in list(draft_files):
+                name_column, remove_column = st.columns([4, 1])
+                name_column.write(draft_file["name"])
+                if remove_column.button(
+                    "Remove",
+                    key=f"remove_draft_{conversation_id}_{draft_file['id']}",
+                ):
+                    draft_files.remove(draft_file)
+                    st.rerun()
 
         library_files = load_files(base_url, token)
         selectable_files = {
@@ -150,7 +214,11 @@ def main() -> None:
             for item in library_files
             if item["processing_status"] == "READY"
         }
-        selected_files = st.multiselect("Attach library files", list(selectable_files))
+        selected_files = st.multiselect(
+            "Attach library files",
+            list(selectable_files),
+            key=f"library_files_{conversation_id}_{library_generation}",
+        )
 
     for message in load_messages(base_url, token, conversation_id):
         role = "assistant" if message["role"] == "ASSISTANT" else "user"
@@ -159,13 +227,15 @@ def main() -> None:
 
     prompt = st.chat_input("Ask the teaching assistant")
     if prompt:
-        file_ids = [selectable_files[label] for label in selected_files]
+        file_ids = merge_attachment_ids(draft_files, selected_files, selectable_files)
         response = request_json(
             "POST",
             f"{base_url}/conversations/{conversation_id}/messages",
             token=token,
             json={"content": prompt, "file_ids": file_ids},
         )
+        drafts[conversation_id] = []
+        library_generations[conversation_id] += 1
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"):

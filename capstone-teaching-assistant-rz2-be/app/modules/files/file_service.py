@@ -1,13 +1,23 @@
 import asyncio
 import mimetypes
 import re
+from io import BytesIO
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from fastapi import status
+from pypdf import PdfReader
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.common.ai import EmbeddingProvider, OllamaEmbeddingProvider
+from app.common.ai import (
+    EmbeddingProvider,
+    ImageDescriptionProvider,
+    OllamaEmbeddingProvider,
+    OllamaImageDescriptionProvider,
+)
 from app.common.config import Settings, get_settings
 from app.common.db_models import File, FileProcessingStatus
 from app.common.errors import ApiError, ErrorDetailDTO, NotFoundError
@@ -24,6 +34,16 @@ from app.modules.files.file_repository import FileRepository
 
 STORED_FILENAME_MAX_LENGTH = 255
 FILE_METADATA_MAX_LENGTH = 255
+GENERIC_MIME_TYPES = {"", "application/octet-stream"}
+DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+SUPPORTED_BINARY_TYPES = {
+    ".pdf": ("pdf", "application/pdf"),
+    ".docx": ("docx", DOCX_MIME_TYPE),
+    ".jpg": ("image", "image/jpeg"),
+    ".jpeg": ("image", "image/jpeg"),
+    ".png": ("image", "image/png"),
+    ".webp": ("image", "image/webp"),
+}
 
 
 class StorageProvider(Protocol):
@@ -49,6 +69,7 @@ class FileService:
         repository: FileRepository | None = None,
         storage: StorageProvider | None = None,
         embeddings: EmbeddingProvider | None = None,
+        image_descriptions: ImageDescriptionProvider | None = None,
         settings: Settings | None = None,
     ) -> None:
         self.session = session
@@ -56,27 +77,34 @@ class FileService:
         self.repository = repository or FileRepository(session)
         self.storage = storage or ObjectStorageClient(self.settings)
         self.embeddings = embeddings or OllamaEmbeddingProvider(self.settings)
+        self.image_descriptions = image_descriptions or OllamaImageDescriptionProvider(
+            self.settings
+        )
 
-    async def upload_text_file(
+    async def upload_file(
         self,
         supervisor_id: UUID,
         original_filename: str,
         content: bytes,
         mime_type: str | None,
     ) -> FileDTO:
-        inferred_mime_type = mime_type or mimetypes.guess_type(original_filename)[0] or "text/plain"
+        inferred_mime_type = (
+            mime_type or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+        )
         self._validate_upload_metadata(original_filename, inferred_mime_type)
         self._validate_upload_size(content)
-        if not self._is_supported_text_file(original_filename, inferred_mime_type):
-            raise ApiError("UNSUPPORTED_FILE_TYPE", "Only text file uploads are supported.")
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ApiError("INVALID_FILE_CONTENT", "Uploaded text files must use UTF-8.") from exc
-
-        chunks = chunk_text(text, self.settings.chunk_size, self.settings.chunk_overlap)
-        if not chunks:
-            raise ApiError("INVALID_FILE_CONTENT", "Uploaded text files must not be empty.")
+        file_kind, inferred_mime_type = self._resolve_upload_type(
+            original_filename, inferred_mime_type
+        )
+        chunks = None
+        if file_kind != "image":
+            text = self._extract_text(file_kind, content)
+            chunks = chunk_text(text, self.settings.chunk_size, self.settings.chunk_overlap)
+            if not chunks:
+                raise ApiError(
+                    "INVALID_FILE_CONTENT",
+                    "Uploaded files must contain extractable text.",
+                )
 
         file_id = uuid4()
         stored_filename = self._stored_filename(file_id, original_filename)
@@ -127,6 +155,16 @@ class FileService:
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             ) from exc
         try:
+            if file_kind == "image":
+                text = await self.image_descriptions.describe_image(content, inferred_mime_type)
+                chunks = chunk_text(text, self.settings.chunk_size, self.settings.chunk_overlap)
+                if not chunks:
+                    raise ApiError(
+                        "INVALID_FILE_CONTENT",
+                        "The image model returned no description.",
+                    )
+            if chunks is None:
+                raise ApiError("INVALID_FILE_CONTENT", "Document processing produced no chunks.")
             embeddings = await self.embeddings.embed_documents(chunks)
             self._validate_embeddings(embeddings, len(chunks))
             await self.repository.add_chunks(file.id, chunks, embeddings)
@@ -240,7 +278,67 @@ class FileService:
         return file
 
     def _is_supported_text_file(self, original_filename: str, mime_type: str) -> bool:
-        return mime_type.startswith("text/") or original_filename.lower().endswith(".txt")
+        return mime_type.startswith("text/") or original_filename.lower().endswith((".txt", ".md"))
+
+    def _resolve_upload_type(self, original_filename: str, mime_type: str) -> tuple[str, str]:
+        extension = f".{original_filename.rsplit('.', 1)[-1].lower()}"
+        binary_type = SUPPORTED_BINARY_TYPES.get(extension)
+        if binary_type is not None:
+            file_kind, canonical_mime_type = binary_type
+            if mime_type not in GENERIC_MIME_TYPES and mime_type != canonical_mime_type:
+                raise ApiError(
+                    "UNSUPPORTED_FILE_TYPE",
+                    "The filename extension and content type do not match.",
+                )
+            return file_kind, canonical_mime_type
+
+        if mime_type.startswith("text/"):
+            return "text", mime_type
+        if extension == ".txt" and mime_type in GENERIC_MIME_TYPES:
+            return "text", "text/plain"
+        if extension == ".md" and mime_type in GENERIC_MIME_TYPES:
+            return "text", "text/markdown"
+        raise ApiError(
+            "UNSUPPORTED_FILE_TYPE",
+            "Supported uploads are text, Markdown, PDF, DOCX, JPEG, PNG, and WebP files.",
+        )
+
+    def _extract_text(self, file_kind: str, content: bytes) -> str:
+        if file_kind == "text":
+            try:
+                return content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ApiError(
+                    "INVALID_FILE_CONTENT",
+                    "Uploaded text files must use UTF-8.",
+                ) from exc
+
+        try:
+            if file_kind == "pdf":
+                reader = PdfReader(BytesIO(content))
+                if reader.is_encrypted:
+                    raise ValueError("Encrypted PDFs are not supported.")
+                return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+            if file_kind == "docx":
+                document = Document(BytesIO(content))
+                blocks: list[str] = []
+                for block in document.iter_inner_content():
+                    if isinstance(block, Paragraph):
+                        blocks.append(block.text)
+                    elif isinstance(block, Table):
+                        blocks.append(
+                            "\n".join(
+                                "\t".join(cell.text.strip() for cell in row.cells)
+                                for row in block.rows
+                            )
+                        )
+                return "\n".join(blocks)
+        except Exception as exc:
+            raise ApiError(
+                "INVALID_FILE_CONTENT",
+                "The uploaded document could not be read.",
+            ) from exc
+        raise ApiError("UNSUPPORTED_FILE_TYPE", "The uploaded file type is not supported.")
 
     def _validate_upload_metadata(self, original_filename: str, mime_type: str) -> None:
         details: list[ErrorDetailDTO] = []

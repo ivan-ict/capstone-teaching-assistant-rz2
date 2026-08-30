@@ -94,6 +94,7 @@ Start Ollama and pull the local MVP models:
 
 ```bash
 ollama pull qwen3
+ollama pull qwen3-vl:2b
 ollama pull qwen3-embedding:0.6b
 ```
 
@@ -124,6 +125,7 @@ RUSTFS_BUCKET_NAME=capstone-files
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_CHAT_MODEL=qwen3
 OLLAMA_CHAT_TEMPERATURE=0.2
+OLLAMA_VISION_MODEL=qwen3-vl:2b
 OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
 EMBEDDING_DIMENSION=1024
 RAG_TOP_K=5
@@ -155,14 +157,16 @@ Implemented MVP workflow:
 
 - Conversation CRUD
 - Global file library CRUD
-- Text file upload to RustFS
-- Text chunking and embedding storage in `document_chunks`
+- Text, Markdown, PDF, DOCX, JPEG, PNG, and WebP upload to RustFS
+- Extracted document text and generated image descriptions stored as embedded chunks
 - Message creation with user and assistant message pair
 - SSE assistant response streaming
 - Retry assistant generation
 - pgvector retrieval over uploaded document chunks and message embeddings
 
-Only UTF-8 text uploads are supported in the MVP. PDF and other document extraction can be added later behind the same file-processing service boundary.
+Text and Markdown uploads must use UTF-8. PDFs must contain an extractable text layer;
+scanned PDFs are not processed with OCR. Images are described by `OLLAMA_VISION_MODEL`, and
+the generated description follows the same chunking and embedding path as document text.
 
 ## Streamlit Demo
 
@@ -172,7 +176,7 @@ Run the local chat demo:
 uv run streamlit run tools/chat_demo.py
 ```
 
-The app lets you create/select conversations, upload `.txt` files, attach ready files, submit chat prompts, and stream assistant responses from the FastAPI backend.
+The app lets you create/select conversations, upload and index TXT, Markdown, PDF, DOCX, and image files before sending, attach ready library files, submit chat prompts, and stream assistant responses from the FastAPI backend.
 Sign in with a Supervisor account. Use the seeded admin account to create a Supervisor first through `/docs` if your local database does not have one yet.
 
 ## Tests And Checks

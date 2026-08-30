@@ -35,7 +35,7 @@ async def upload_file(
 ):
     settings = get_settings()
     content = await _read_limited_upload(file, settings.max_upload_bytes)
-    return await FileService(session).upload_text_file(
+    return await FileService(session).upload_file(
         supervisor_id=current_user.id,
         original_filename=file.filename or "upload.txt",
         content=content,

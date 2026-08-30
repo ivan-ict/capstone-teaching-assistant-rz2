@@ -6,14 +6,13 @@ import {
   Layers, 
   X, 
   FileText, 
-  Image as ImageIcon,
-  Sparkles,
-  Paperclip
+  Image as ImageIcon
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AttachedFile } from '../../types';
 import { formatBytes } from '../../utils/formatters';
 import { LibraryModal } from './LibraryModal';
+import { SUPPORTED_UPLOAD_ACCEPT } from '../../constants/files';
 
 interface ChatInputProps {
   onSendMessage: (text: string, attached: AttachedFile[]) => void;
@@ -21,11 +20,12 @@ interface ChatInputProps {
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled }) => {
-  const { uploadFiles, activeConversation, pendingChatAttachments, setPendingChatAttachments, previewFile } = useApp();
+  const { uploadFiles, pendingChatAttachments, setPendingChatAttachments, previewFile } = useApp();
   const [inputText, setInputText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -67,7 +67,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
   }, []);
 
   const handleSend = () => {
-    if ((!inputText.trim() && attachedFiles.length === 0) || disabled) return;
+    if ((!inputText.trim() && attachedFiles.length === 0) || disabled || isUploading) return;
     onSendMessage(inputText.trim(), attachedFiles);
     setInputText('');
     setAttachedFiles([]);
@@ -86,11 +86,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
   // Upload from computer
   const handleNativeFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    const currentProjId = activeConversation?.projectId || null;
-    const uploaded = await uploadFiles(e.target.files, currentProjId);
-    setAttachedFiles(prev => [...prev, ...uploaded]);
-    setIsAddMenuOpen(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    setIsUploading(true);
+    try {
+      const uploaded = await uploadFiles(e.target.files);
+      setAttachedFiles(prev => {
+        const existingIds = new Set(prev.map(file => file.id));
+        return [...prev, ...uploaded.filter(file => !existingIds.has(file.id))];
+      });
+      setIsAddMenuOpen(false);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   // Attach from library
@@ -114,6 +121,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
         ref={fileInputRef}
         type="file"
         multiple
+        accept={SUPPORTED_UPLOAD_ACCEPT}
+        disabled={isUploading || disabled}
         className="hidden"
         onChange={handleNativeFileUpload}
       />
@@ -122,11 +131,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
       <div className="relative bg-white dark:bg-slate-850 border border-slate-200/90 dark:border-slate-700/80 rounded-3xl shadow-lg shadow-slate-200/40 dark:shadow-none transition focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500">
         
         {/* Scrollable list of attached images and files */}
-        {attachedFiles.length > 0 && (
+        {(attachedFiles.length > 0 || isUploading) && (
           <div 
             id="attached-files-scrollable-bar"
             className="p-3 pb-1 flex items-center gap-2 overflow-x-auto custom-scrollbar border-b border-slate-100 dark:border-slate-800/80"
           >
+            {isUploading && (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs font-medium text-blue-700 dark:text-blue-300 shrink-0">
+                <span className="w-3 h-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                Uploading and indexing…
+              </div>
+            )}
             {attachedFiles.map(file => (
               <div 
                 key={file.id}
@@ -192,6 +207,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
                   onClick={() => {
                     fileInputRef.current?.click();
                   }}
+                  disabled={isUploading || disabled}
                   className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/80 flex items-center gap-2.5 transition"
                 >
                   <div className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center">
@@ -241,7 +257,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
           <button
             id="chat-send-message-btn"
             type="button"
-            disabled={(!inputText.trim() && attachedFiles.length === 0) || disabled}
+            disabled={
+              (!inputText.trim() && attachedFiles.length === 0) || disabled || isUploading
+            }
             onClick={handleSend}
             className="p-2 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white shadow-md shadow-blue-500/20 transition shrink-0 cursor-pointer flex items-center justify-center active:scale-95"
             title="Send message"

@@ -665,7 +665,9 @@ Returns unique Files associated with the Conversation through `message_files`.
 
 ## `POST /files`
 
-Uploads a File to Object Storage and starts document processing.
+Uploads a File to Object Storage and processes it synchronously. Supported uploads are UTF-8
+text and Markdown, text-layer PDFs, DOCX documents, and JPEG, PNG, or WebP images. Images are
+described by the configured vision model before the description is chunked and embedded.
 
 Content type:
 
@@ -689,7 +691,7 @@ There is no `project_id` because Files do not directly belong to Projects.
   "original_filename": "Capstone-Handbook.pdf",
   "mime_type": "application/pdf",
   "file_size_bytes": 528944,
-  "processing_status": "PROCESSING",
+  "processing_status": "READY",
   "created_at": "2026-08-23T05:30:00Z"
 }
 ```

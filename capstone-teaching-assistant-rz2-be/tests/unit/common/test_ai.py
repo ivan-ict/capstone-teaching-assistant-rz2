@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from app.common.ai import OllamaChatProvider
+from app.common.ai import OllamaChatProvider, OllamaImageDescriptionProvider
 from app.common.config import Settings
 
 
@@ -20,6 +20,10 @@ class FakeChatModel:
     async def astream(self, messages: list[Any]):
         self.messages = messages
         yield FakeChunk("done")
+
+    async def ainvoke(self, messages: list[Any]):
+        self.messages = messages
+        return FakeChunk("A detailed image description.")
 
 
 def test_ollama_chat_provider_forwards_generation_settings(
@@ -80,3 +84,31 @@ async def test_ollama_chat_provider_preserves_assistant_history_role() -> None:
     assert isinstance(model.messages[1], HumanMessage)
     assert isinstance(model.messages[2], AIMessage)
     assert model.messages[2].content == "Previous answer"
+
+
+@pytest.mark.asyncio
+async def test_image_description_provider_uses_dedicated_model_and_multimodal_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FakeChatModel()
+    captured_options: dict[str, Any] = {}
+
+    def fake_chat_model(**options: Any) -> FakeChatModel:
+        captured_options.update(options)
+        return model
+
+    monkeypatch.setattr("app.common.ai.ChatOllama", fake_chat_model)
+    provider = OllamaImageDescriptionProvider(
+        Settings(ollama_vision_model="test-vision-model", ollama_base_url="http://ollama.test")
+    )
+
+    description = await provider.describe_image(b"png bytes", "image/png")
+
+    assert description == "A detailed image description."
+    assert captured_options == {
+        "model": "test-vision-model",
+        "base_url": "http://ollama.test",
+        "temperature": 0,
+    }
+    assert isinstance(model.messages[0], HumanMessage)
+    assert model.messages[0].content[1]["image_url"] == "data:image/png;base64,cG5nIGJ5dGVz"

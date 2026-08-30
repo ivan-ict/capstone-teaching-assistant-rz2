@@ -43,6 +43,14 @@ class FakeEmbeddings:
         return [0.1] * self.settings.embedding_dimension
 
 
+class FakeImageDescriptions:
+    def __init__(self, settings) -> None:
+        self.settings = settings
+
+    async def describe_image(self, content: bytes, mime_type: str) -> str:
+        return "Architecture diagram showing a browser connected to the API."
+
+
 @pytest.mark.asyncio
 async def test_file_upload_list_detail_download_and_delete(
     client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
@@ -151,3 +159,32 @@ async def test_file_upload_rejects_oversized_body_before_persisting(
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "FILE_TOO_LARGE"
     assert files == []
+
+
+@pytest.mark.asyncio
+async def test_image_upload_saves_generated_description_as_chunk(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.modules.files.file_service.ObjectStorageClient", FakeStorageClient)
+    monkeypatch.setattr("app.modules.files.file_service.OllamaEmbeddingProvider", FakeEmbeddings)
+    monkeypatch.setattr(
+        "app.modules.files.file_service.OllamaImageDescriptionProvider",
+        FakeImageDescriptions,
+    )
+
+    response = await client.post(
+        "/api/v1/files",
+        files={"file": ("architecture.png", b"image bytes", "image/png")},
+    )
+
+    assert response.status_code == 201
+    uploaded = response.json()
+    chunks = list(
+        await session.scalars(
+            select(DocumentChunk).where(DocumentChunk.file_id == UUID(uploaded["id"]))
+        )
+    )
+    assert uploaded["processing_status"] == "READY"
+    assert [chunk.content for chunk in chunks] == [
+        "Architecture diagram showing a browser connected to the API."
+    ]
