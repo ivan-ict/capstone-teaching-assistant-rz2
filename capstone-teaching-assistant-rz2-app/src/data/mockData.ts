@@ -211,7 +211,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 2450000,
     type: 'application/pdf',
     uploadedAt: '2026-08-12T10:00:00.000Z',
-    projectId: 'proj-1',
+    projectIds: ['proj-1'],
     isImage: false,
   },
   {
@@ -220,7 +220,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 512000,
     type: 'text/csv',
     uploadedAt: '2026-08-14T11:20:00.000Z',
-    projectId: 'proj-1',
+    projectIds: ['proj-1'],
     isImage: false,
   },
   {
@@ -229,7 +229,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 1840000,
     type: 'image/png',
     uploadedAt: '2026-08-16T15:45:00.000Z',
-    projectId: 'proj-1',
+    projectIds: ['proj-1'],
     isImage: true,
   },
   {
@@ -238,7 +238,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 1280000,
     type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     uploadedAt: '2026-08-16T09:30:00.000Z',
-    projectId: 'proj-2',
+    projectIds: ['proj-2'],
     isImage: false,
   },
   {
@@ -247,7 +247,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 3100000,
     type: 'image/png',
     uploadedAt: '2026-08-17T13:10:00.000Z',
-    projectId: 'proj-2',
+    projectIds: ['proj-2'],
     isImage: true,
   },
   {
@@ -256,7 +256,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 890000,
     type: 'application/pdf',
     uploadedAt: '2026-08-01T08:00:00.000Z',
-    projectId: null, // Uncategorised
+    projectIds: [], // Uncategorised
     isImage: false,
   },
   {
@@ -265,7 +265,7 @@ export const INITIAL_FILES: AttachedFile[] = [
     size: 450000,
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     uploadedAt: '2026-08-05T14:20:00.000Z',
-    projectId: null, // Uncategorised
+    projectIds: [], // Uncategorised
     isImage: false,
   },
 ];
@@ -290,7 +290,7 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
             size: 2450000,
             type: 'application/pdf',
             uploadedAt: '2026-08-12T10:00:00.000Z',
-            projectId: 'proj-1',
+            projectIds: ['proj-1'],
           }
         ],
       },

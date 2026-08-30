@@ -37,8 +37,10 @@ export interface AttachedFile {
   size: number; // in bytes
   type: string; // mime or extension e.g. 'image/png', 'application/pdf', 'code', etc.
   uploadedAt: string;
-  projectId?: string | null; // null or undefined means 'Uncategorised'
+  projectIds?: string[]; // empty or undefined means 'Uncategorised'
   dataUrl?: string; // for thumbnail / preview
+  isPreviewLoading?: boolean;
+  previewError?: string;
   isImage?: boolean;
 }
 

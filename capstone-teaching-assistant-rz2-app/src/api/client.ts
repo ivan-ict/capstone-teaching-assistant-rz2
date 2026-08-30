@@ -138,6 +138,11 @@ interface FileContentDTO {
   content: string;
 }
 
+interface FileBulkDeleteResultDTO {
+  deleted_ids: string[];
+  failed_ids: string[];
+}
+
 interface MessageCreateResponseDTO {
   user_message: {
     id: string;
@@ -334,7 +339,7 @@ export class ApiClient {
 
   async listProjectFiles(projectId: string): Promise<AttachedFile[]> {
     const response = await this.request<{ items: FileDTO[] }>(`/projects/${projectId}/files`);
-    return response.items.map(file => mapFile(file, projectId));
+    return response.items.map(file => mapFile(file, [projectId]));
   }
 
   async listConversations(): Promise<Conversation[]> {
@@ -418,12 +423,16 @@ export class ApiClient {
     await this.request(`/files/${id}`, { method: 'DELETE' });
   }
 
-  async deleteFilesBulk(ids: string[]): Promise<void> {
-    if (!ids.length) return;
-    await this.request('/files/bulk-delete', {
+  async deleteFilesBulk(ids: string[]): Promise<{ deletedIds: string[]; failedIds: string[] }> {
+    if (!ids.length) return { deletedIds: [], failedIds: [] };
+    const response = await this.request<FileBulkDeleteResultDTO>('/files/bulk-delete', {
       method: 'POST',
       body: JSON.stringify({ file_ids: ids }),
     });
+    return {
+      deletedIds: response.deleted_ids,
+      failedIds: response.failed_ids,
+    };
   }
 
   async getFileContent(id: string): Promise<FileContentDTO> {
@@ -637,14 +646,14 @@ function mapMessage(dto: ConversationMessageDTO): Message {
   };
 }
 
-function mapFile(dto: FileDTO, projectId?: string | null): AttachedFile {
+function mapFile(dto: FileDTO, projectIds: string[] = []): AttachedFile {
   return {
     id: dto.id,
     name: dto.original_filename,
     size: dto.file_size_bytes,
     type: dto.mime_type,
     uploadedAt: dto.created_at,
-    projectId,
+    projectIds,
     isImage: dto.mime_type.startsWith('image/'),
   };
 }

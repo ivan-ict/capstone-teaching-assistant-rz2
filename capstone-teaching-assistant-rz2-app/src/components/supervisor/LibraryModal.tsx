@@ -57,7 +57,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
     // Projects
     rawProjects.forEach(p => {
       if (!p || !p.id) return;
-      const pFiles = filtered.filter(f => f && f.projectId === p.id);
+      const pFiles = filtered.filter(f => f && f.projectIds?.includes(p.id));
       if (pFiles.length > 0 || !searchQuery) {
         groups.push({
           projectId: p.id,
@@ -68,9 +68,11 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
       }
     });
 
-    // Uncategorised (files without projectId or referencing non-existent project)
+    // Uncategorised (files without a current project membership)
     const existingProjectIds = new Set(rawProjects.map(p => p.id));
-    const uncatFiles = filtered.filter(f => f && (!f.projectId || !existingProjectIds.has(f.projectId)));
+    const uncatFiles = filtered.filter(
+      file => file && !file.projectIds?.some(projectId => existingProjectIds.has(projectId)),
+    );
     if (uncatFiles.length > 0 || !searchQuery) {
       groups.push({
         projectId: null,

@@ -15,7 +15,7 @@ import { LibraryModal } from './LibraryModal';
 import { SUPPORTED_UPLOAD_ACCEPT } from '../../constants/files';
 
 interface ChatInputProps {
-  onSendMessage: (text: string, attached: AttachedFile[]) => void;
+  onSendMessage: (text: string, attached: AttachedFile[]) => Promise<boolean>;
   disabled?: boolean;
 }
 
@@ -66,9 +66,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled })
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if ((!inputText.trim() && attachedFiles.length === 0) || disabled || isUploading) return;
-    onSendMessage(inputText.trim(), attachedFiles);
+    const sent = await onSendMessage(inputText.trim(), attachedFiles);
+    if (sent === false) return;
     setInputText('');
     setAttachedFiles([]);
     if (textareaRef.current) {

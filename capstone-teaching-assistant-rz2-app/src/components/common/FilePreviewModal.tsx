@@ -111,7 +111,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
 
   if (!file) return null;
 
-  const project = file.projectId ? projects.find(p => p.id === file.projectId) : null;
+  const fileProjects = projects.filter(project => file.projectIds?.includes(project.id));
+  const projectNames = fileProjects.map(project => project.name).join(', ');
 
   const handleDownload = () => {
     downloadFile(file);
@@ -261,10 +262,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
                 <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white truncate">
                   {file.name}
                 </h3>
-                {project ? (
+                {fileProjects.length ? (
                   <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                     <Folder className="w-3 h-3 text-amber-500" />
-                    <span className="truncate max-w-[140px]">{project.name}</span>
+                    <span className="truncate max-w-[140px]">{projectNames}</span>
                   </span>
                 ) : (
                   <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500">
@@ -373,8 +374,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
                       <p className="font-semibold text-slate-800 dark:text-slate-200">{formatDate(file.uploadedAt)}</p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-slate-400 font-medium">Assigned Project</span>
-                      <p className="font-semibold text-slate-800 dark:text-slate-200">{project ? project.name : 'Uncategorised / General Repository'}</p>
+                      <span className="text-slate-400 font-medium">Assigned Projects</span>
+                      <p className="font-semibold text-slate-800 dark:text-slate-200">{projectNames || 'Uncategorised / General Repository'}</p>
                     </div>
                     <div className="space-y-1">
                       <span className="text-slate-400 font-medium">Unique Asset ID</span>
@@ -383,8 +384,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
                   </div>
                 </div>
 
-                {project && (
-                  <div className="bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-5 text-xs space-y-2">
+                {fileProjects.map(project => (
+                  <div key={project.id} className="bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-5 text-xs space-y-2">
                     <div className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
                       <Folder className="w-4 h-4 text-amber-500" />
                       Project Context: {project.name}
@@ -393,7 +394,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
                       {project.instructions || 'No specific project supervision instructions configured.'}
                     </p>
                   </div>
-                )}
+                ))}
 
                 {/* Audit & Compliance Log */}
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-3">
@@ -418,6 +419,27 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
                   </div>
                 </div>
               </div>
+            </div>
+          ) : file.isPreviewLoading ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
+              <span className="w-4 h-4 mr-2 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+              Loading preview…
+            </div>
+          ) : file.previewError ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+              <FileText className="w-10 h-10 text-slate-400" />
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Preview unavailable
+              </p>
+              <p className="text-xs text-slate-500 max-w-md">{file.previewError}</p>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download file
+              </button>
             </div>
           ) : (
             /* Interactive File Previews based on format */
@@ -559,8 +581,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
               </div>
             )}
 
-              {/* 2. PDF ACADEMIC DOCUMENT PREVIEW */}
-              {isPdf && (
+              {isPdf && file.dataUrl && (
+                <iframe
+                  src={file.dataUrl}
+                  title={`Preview of ${file.name}`}
+                  className="flex-1 w-full h-full border-0 bg-white"
+                />
+              )}
+
+              {/* Legacy PDF layout is only used when no stored preview is available. */}
+              {isPdf && !file.dataUrl && (
                 <div className="flex-1 flex flex-col h-full overflow-hidden">
                   {/* PDF Reader Toolbar */}
                   <div className="h-11 px-4 bg-slate-200/80 dark:bg-slate-850 border-b border-slate-300 dark:border-slate-800 flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 shrink-0 gap-3">
@@ -940,7 +970,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
                       <button
                         onClick={() => handleCopyRaw(
                           decodedRawText || 
-                          `// ${file.name}\n// Capstone Engineering Specification\n// Generated for ${project ? project.name : 'General Cohort'}`
+                          `// ${file.name}\n// Capstone Engineering Specification\n// Generated for ${projectNames || 'General Cohort'}`
                         )}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer font-medium"
                       >

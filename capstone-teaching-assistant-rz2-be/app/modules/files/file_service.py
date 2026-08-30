@@ -98,7 +98,10 @@ class FileService:
         )
         chunks = None
         if file_kind != "image":
-            text = self._extract_text(file_kind, content)
+            if file_kind in {"pdf", "docx"}:
+                text = await asyncio.to_thread(self._extract_text, file_kind, content)
+            else:
+                text = self._extract_text(file_kind, content)
             chunks = chunk_text(text, self.settings.chunk_size, self.settings.chunk_overlap)
             if not chunks:
                 raise ApiError(

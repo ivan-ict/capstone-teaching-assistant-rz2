@@ -65,7 +65,7 @@ export const ChatArea: React.FC = () => {
         size: 512000,
         type: refName.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
         uploadedAt: new Date().toISOString(),
-        projectId: activeConversation?.projectId
+        projectIds: activeConversation?.projectId ? [activeConversation.projectId] : [],
       });
     }
   };

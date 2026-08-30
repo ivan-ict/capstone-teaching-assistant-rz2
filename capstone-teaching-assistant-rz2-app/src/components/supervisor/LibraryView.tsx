@@ -60,7 +60,7 @@ export const LibraryView: React.FC = () => {
 
     // Projects
     projects.forEach(p => {
-      const pFiles = filtered.filter(f => f.projectId === p.id);
+      const pFiles = filtered.filter(f => f.projectIds?.includes(p.id));
       groups.push({
         projectId: p.id,
         projectName: p.name,
@@ -70,7 +70,10 @@ export const LibraryView: React.FC = () => {
     });
 
     // Uncategorised
-    const uncatFiles = filtered.filter(f => !f.projectId);
+    const existingProjectIds = new Set(projects.map(project => project.id));
+    const uncatFiles = filtered.filter(
+      file => !file.projectIds?.some(projectId => existingProjectIds.has(projectId)),
+    );
     groups.push({
       projectId: null,
       projectName: 'Uncategorised',
@@ -349,7 +352,7 @@ export const LibraryView: React.FC = () => {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    startConversationWithFiles([file], file.projectId || null);
+                                    startConversationWithFiles([file], group.projectId);
                                   }}
                                   className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
                                   title="Start Conversation with this file"

@@ -41,7 +41,7 @@ export const ProjectSettingsModal: React.FC = () => {
 
   if (!projectToEdit) return null;
 
-  const projectFiles = libraryFiles.filter(f => f.projectId === projectToEdit.id);
+  const projectFiles = libraryFiles.filter(f => f.projectIds?.includes(projectToEdit.id));
 
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();

@@ -54,7 +54,7 @@ interface AppContextType {
   renameConversation: (id: string, newTitle: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   moveConversationToProject: (conversationId: string, projectId: string | null) => Promise<void>;
-  sendMessage: (content: string, attachedFiles?: AttachedFile[]) => Promise<void>;
+  sendMessage: (content: string, attachedFiles?: AttachedFile[]) => Promise<boolean>;
   isGeneratingResponse: boolean;
   uploadFiles: (files: FileList | File[]) => Promise<AttachedFile[]>;
   deleteFile: (fileId: string) => Promise<void>;
@@ -104,6 +104,15 @@ const DEMO_CREDENTIALS = {
 };
 
 const avatarColors = ['bg-blue-600', 'bg-emerald-600', 'bg-indigo-600', 'bg-purple-600', 'bg-teal-600', 'bg-amber-600'];
+
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => typeof reader.result === 'string'
+    ? resolve(reader.result)
+    : reject(new Error('Could not read file preview.'));
+  reader.onerror = () => reject(reader.error || new Error('Could not read file preview.'));
+  reader.readAsDataURL(blob);
+});
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEYS.TOKEN));
@@ -204,14 +213,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       api.listFiles(),
     ]);
     const projectFiles = await Promise.all(nextProjects.map(project => api.listProjectFiles(project.id).catch(() => [])));
-    const projectIdByFile = new Map<string, string>();
+    const projectIdsByFile = new Map<string, string[]>();
     projectFiles.forEach((files, index) => {
-      files.forEach(file => projectIdByFile.set(file.id, nextProjects[index].id));
+      files.forEach(file => {
+        const projectIds = projectIdsByFile.get(file.id) || [];
+        projectIdsByFile.set(file.id, [...projectIds, nextProjects[index].id]);
+      });
     });
 
     setProjects(nextProjects);
     setExpandedProjectIds(prev => prev.length ? prev.filter(id => nextProjects.some(project => project.id === id)) : nextProjects.map(project => project.id));
-    setLibraryFiles(nextFiles.map(file => ({ ...file, projectId: projectIdByFile.get(file.id) || null })));
+    setLibraryFiles(nextFiles.map(file => ({ ...file, projectIds: projectIdsByFile.get(file.id) || [] })));
     setConversations(prev => {
       const messageMap = new Map(prev.map(conversation => [conversation.id, conversation.messages]));
       return nextConversations.map(conversation => ({
@@ -482,8 +494,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!files.length) return;
     let targetProjectId = projectId;
     if (targetProjectId === undefined) {
-      const distinctProjectIds = Array.from(new Set(files.map(file => file.projectId).filter(Boolean)));
-      targetProjectId = distinctProjectIds.length === 1 ? distinctProjectIds[0] as string : null;
+      const distinctProjectIds = Array.from(new Set(files.flatMap(file => file.projectIds || [])));
+      targetProjectId = distinctProjectIds.length === 1 ? distinctProjectIds[0] : null;
     }
     const titleNames = files.map(file => file.name).join(', ');
     const title = `Analysis: ${titleNames.length > 30 ? `${titleNames.slice(0, 30)}...` : titleNames}`;
@@ -542,18 +554,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const messageContent = content.trim();
     if (!messageContent && !messageFiles.length) {
       alert('Please enter a message or attach files.');
-      return;
+      return false;
     }
     let targetConversation = activeConversation;
     if (!targetConversation) {
       const titleSeed = messageContent || messageFiles.map(file => file.name).join(', ');
       targetConversation = await createConversation(null, titleSeed.slice(0, 36) + (titleSeed.length > 36 ? '...' : ''));
-      if (!targetConversation) return;
+      if (!targetConversation) return false;
     }
 
+    let messageCreated = false;
     setIsGeneratingResponse(true);
     try {
       const response = await api.createMessage(targetConversation.id, messageContent, messageFiles.map(file => file.id));
+      messageCreated = true;
       const now = new Date().toISOString();
       const userMessage: Message = {
         id: response.user_message.id,
@@ -598,6 +612,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setIsGeneratingResponse(false);
     }
+    return messageCreated;
   };
 
   const uploadFiles = async (files: FileList | File[]): Promise<AttachedFile[]> => {
@@ -634,15 +649,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteFilesBulk = async (fileIds: string[]) => {
     try {
-      await api.deleteFilesBulk(fileIds);
-      setLibraryFiles(prev => prev.filter(file => !fileIds.includes(file.id)));
+      const result = await api.deleteFilesBulk(fileIds);
+      setLibraryFiles(prev => prev.filter(file => !result.deletedIds.includes(file.id)));
       setConversations(prev => prev.map(conversation => ({
         ...conversation,
         messages: conversation.messages.map(message => ({
           ...message,
-          attachedFiles: message.attachedFiles?.filter(file => !fileIds.includes(file.id)),
+          attachedFiles: message.attachedFiles?.filter(
+            file => !result.deletedIds.includes(file.id),
+          ),
         })),
       })));
+      if (result.failedIds.length) {
+        const failedNames = libraryFiles
+          .filter(file => result.failedIds.includes(file.id))
+          .map(file => file.name);
+        alert(`Could not delete: ${failedNames.join(', ') || result.failedIds.join(', ')}.`);
+      }
     } catch (error) {
       showError(error, 'Could not delete selected files.');
     }
@@ -681,16 +704,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const previewFile = useCallback((file: AttachedFile) => {
-    setFileToPreview(file);
-    api.getFileContent(file.id)
-      .then(response => {
-        const encoded = btoa(unescape(encodeURIComponent(response.content)));
-        setFileToPreview(current => current?.id === file.id ? {
-          ...current,
-          dataUrl: `data:${response.mime_type};base64,${encoded}`,
-        } : current);
-      })
-      .catch(() => undefined);
+    const isImage = file.isImage || file.type.startsWith('image/');
+    const isPdf = file.type.includes('pdf') || file.name.toLowerCase().endsWith('.pdf');
+    const isText = file.type.startsWith('text/') || file.name.toLowerCase().endsWith('.md');
+    setFileToPreview({ ...file, isPreviewLoading: true, previewError: undefined });
+
+    const preview = isImage || isPdf
+      ? api.downloadFile(file.id).then(blobToDataUrl)
+      : isText
+        ? api.getFileContent(file.id).then(response => {
+            const encoded = btoa(unescape(encodeURIComponent(response.content)));
+            return `data:${response.mime_type};base64,${encoded}`;
+          })
+        : Promise.reject(new Error('Preview is unavailable for this file format.'));
+
+    preview
+      .then(dataUrl => setFileToPreview(current => current?.id === file.id ? {
+        ...current,
+        dataUrl,
+        isPreviewLoading: false,
+      } : current))
+      .catch(error => setFileToPreview(current => current?.id === file.id ? {
+        ...current,
+        isPreviewLoading: false,
+        previewError: error instanceof Error ? error.message : 'File preview is unavailable.',
+      } : current));
   }, [api]);
 
   const setProjectToEdit = (project: Project | null) => {
@@ -700,7 +738,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .then(files => {
           setLibraryFiles(prev => {
             const existing = new Map(prev.map(file => [file.id, file]));
-            files.forEach(file => existing.set(file.id, { ...file, projectId: project.id }));
+            files.forEach(file => {
+              const existingFile = existing.get(file.id);
+              const projectIds = Array.from(new Set([
+                ...(existingFile?.projectIds || file.projectIds || []),
+                project.id,
+              ]));
+              existing.set(file.id, { ...(existingFile || file), projectIds });
+            });
             return Array.from(existing.values());
           });
         })
