@@ -128,7 +128,7 @@ interface FileDTO {
   original_filename: string;
   mime_type: string;
   file_size_bytes: number;
-  processing_status: string;
+  processing_status: 'PROCESSING' | 'READY' | 'FAILED';
   processing_error?: string | null;
   created_at: string;
   updated_at?: string;
@@ -161,6 +161,7 @@ interface MessageCreateResponseDTO {
     status: string;
     sequence_no: number;
   };
+  conversation_title: string;
   stream_url: string;
 }
 
@@ -662,6 +663,8 @@ function mapFile(dto: FileDTO, projectIds: string[] = []): AttachedFile {
     uploadedAt: dto.created_at,
     projectIds,
     isImage: dto.mime_type.startsWith('image/'),
+    processingStatus: dto.processing_status,
+    processingError: dto.processing_error || undefined,
   };
 }
 

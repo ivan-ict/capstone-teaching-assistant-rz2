@@ -32,6 +32,7 @@ class MessageDTO(BaseModel):
 class MessageCreateResponseDTO(BaseModel):
     user_message: MessageDTO
     assistant_message: MessageDTO
+    conversation_title: str
     stream_url: str
 
 

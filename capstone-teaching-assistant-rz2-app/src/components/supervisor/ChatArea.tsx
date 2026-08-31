@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
     Copy,
     Check,
@@ -28,6 +29,7 @@ import {
     getDateCategory,
     formatBytes,
 } from "../../utils/formatters";
+import { remarkHtmlBreaks } from "../../utils/markdown";
 import { ChatInput } from "./ChatInput";
 import { ConversationFilesModal } from "./ConversationFilesModal";
 import { AppLogo } from "../common/AppLogo";
@@ -582,8 +584,8 @@ export const ChatArea: React.FC = () => {
                                                         </div>
 
                                                         {/* Assistant formatted content */}
-                                                        <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-slate-800 dark:text-slate-200">
-                                                            <ReactMarkdown>
+                                                        <div className="prose dark:prose-invert max-w-none overflow-x-auto text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+                                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkHtmlBreaks]}>
                                                                 {
                                                                     message.content
                                                                 }

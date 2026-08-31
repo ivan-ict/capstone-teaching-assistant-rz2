@@ -45,6 +45,47 @@ class FakeEmbeddingProvider:
 
 
 @pytest.mark.asyncio
+async def test_first_message_persists_generated_conversation_title(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="New conversation")
+    session.add(conversation)
+    await session.commit()
+
+    response = await client.post(
+        f"/api/v1/conversations/{conversation.id}/messages",
+        json={
+            "content": "A first question long enough to verify title truncation is persisted",
+            "file_ids": [],
+        },
+    )
+    await session.refresh(conversation)
+
+    assert response.status_code == 201
+    assert response.json()["conversation_title"] == "A first question long enough to verify tit..."
+    assert conversation.title == "A first question long enough to verify tit..."
+
+
+@pytest.mark.asyncio
+async def test_first_message_preserves_custom_conversation_title(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    session.add(conversation)
+    await session.commit()
+
+    response = await client.post(
+        f"/api/v1/conversations/{conversation.id}/messages",
+        json={"content": "This question must not replace the custom title.", "file_ids": []},
+    )
+    await session.refresh(conversation)
+
+    assert response.status_code == 201
+    assert response.json()["conversation_title"] == "Team issues"
+    assert conversation.title == "Team issues"
+
+
+@pytest.mark.asyncio
 async def test_chat_message_stream_and_retry(
     client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

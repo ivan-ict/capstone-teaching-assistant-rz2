@@ -89,16 +89,18 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
 
   const rowKey = (projectId: string | null, fileId: string) => `${projectId || 'uncategorised'}:${fileId}`;
 
-  const toggleFile = (projectId: string | null, fileId: string) => {
-    if (!fileId) return;
-    const key = rowKey(projectId, fileId);
+  const toggleFile = (projectId: string | null, file: AttachedFile) => {
+    if (!file.id || (file.processingStatus && file.processingStatus !== 'READY')) return;
+    const key = rowKey(projectId, file.id);
     setSelectedFileRows(prev =>
       prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]
     );
   };
 
   const toggleSelectAllProject = (projectId: string | null, projectFiles: AttachedFile[]) => {
-    const projectRows = projectFiles.map(file => rowKey(projectId, file.id));
+    const projectRows = projectFiles
+      .filter(file => !file.processingStatus || file.processingStatus === 'READY')
+      .map(file => rowKey(projectId, file.id));
     if (projectRows.length === 0) return;
     const allSelected = projectRows.every(key => selectedFileRows.includes(key));
 
@@ -174,7 +176,8 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
             </div>
           ) : (
             groupedFiles.map(group => {
-              const allProjSelected = group.files.length > 0 && group.files.every(f => selectedFileRows.includes(rowKey(group.projectId, f.id)));
+              const readyFiles = group.files.filter(file => !file.processingStatus || file.processingStatus === 'READY');
+              const allProjSelected = readyFiles.length > 0 && readyFiles.every(f => selectedFileRows.includes(rowKey(group.projectId, f.id)));
 
               return (
                 <div key={group.projectName} className="space-y-2.5">
@@ -191,7 +194,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                     </div>
 
                     {/* Select all checkbox for projects (per spec: except Uncategorised) */}
-                    {!group.isUncategorised && group.files.length > 0 && (
+                    {!group.isUncategorised && readyFiles.length > 0 && (
                       <button
                         type="button"
                         onClick={() => toggleSelectAllProject(group.projectId, group.files)}
@@ -228,11 +231,12 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                           {group.files.map(file => {
                             if (!file) return null;
                             const isChecked = selectedFileRows.includes(rowKey(group.projectId, file.id));
+                            const isReady = !file.processingStatus || file.processingStatus === 'READY';
                             return (
                               <tr
                                 key={file.id}
-                                onClick={() => toggleFile(group.projectId, file.id)}
-                                className={`cursor-pointer transition ${
+                                onClick={() => toggleFile(group.projectId, file)}
+                                className={`transition ${isReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${
                                   isChecked 
                                     ? 'bg-blue-50/70 dark:bg-blue-950/30 text-blue-950 dark:text-blue-100 font-medium' 
                                     : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
@@ -242,9 +246,10 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
+                                    disabled={!isReady}
                                     onChange={(e) => {
                                       e.stopPropagation();
-                                      toggleFile(group.projectId, file.id);
+                                      toggleFile(group.projectId, file);
                                     }}
                                     onClick={(e) => e.stopPropagation()}
                                     className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -257,6 +262,14 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                                     <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                   )}
                                   <span className="truncate max-w-xs">{file.name || 'Untitled Document'}</span>
+                                  {!isReady && (
+                                    <span
+                                      className="text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                                      title={file.processingError || 'This file is not ready for chat.'}
+                                    >
+                                      {file.processingStatus === 'FAILED' ? 'Failed' : 'Processing'}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">
                                   {formatBytes(file.size)}

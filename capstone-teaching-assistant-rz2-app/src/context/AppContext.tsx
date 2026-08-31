@@ -482,6 +482,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const startConversationWithFiles = async (files: AttachedFile[], projectId?: string | null) => {
     if (!files.length) return;
+    const unavailableFiles = files.filter(file => file.processingStatus && file.processingStatus !== 'READY');
+    if (unavailableFiles.length) {
+      alert(`These files are not ready for chat: ${unavailableFiles.map(file => file.name).join(', ')}.`);
+      return;
+    }
     let targetProjectId = projectId;
     if (targetProjectId === undefined) {
       const distinctProjectIds = Array.from(new Set(files.flatMap(file => file.projectIds || [])));
@@ -546,6 +551,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       alert('Please enter a message or attach files.');
       return false;
     }
+    const unavailableFiles = messageFiles.filter(file => file.processingStatus && file.processingStatus !== 'READY');
+    if (unavailableFiles.length) {
+      alert(`These files are not ready for chat: ${unavailableFiles.map(file => file.name).join(', ')}.`);
+      return false;
+    }
     let targetConversation = activeConversation;
     if (!targetConversation) {
       const titleSeed = messageContent || messageFiles.map(file => file.name).join(', ');
@@ -574,12 +584,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       setConversations(prev => prev.map(conversation => {
         if (conversation.id !== targetConversation!.id) return conversation;
-        const title = conversation.messages.length === 0 && conversation.title.toLowerCase().startsWith('new conversation')
-          ? response.user_message.content.slice(0, 42).trim() + (response.user_message.content.length > 42 ? '...' : '')
-          : conversation.title;
         return {
           ...conversation,
-          title,
+          title: response.conversation_title,
           updatedAt: now,
           messages: [...conversation.messages, userMessage],
         };

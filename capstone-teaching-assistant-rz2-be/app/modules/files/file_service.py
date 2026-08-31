@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import mimetypes
 import re
 from io import BytesIO
@@ -44,6 +45,8 @@ SUPPORTED_BINARY_TYPES = {
     ".png": ("image", "image/png"),
     ".webp": ("image", "image/webp"),
 }
+
+logger = logging.getLogger(__name__)
 
 
 class StorageProvider(Protocol):
@@ -157,8 +160,10 @@ class FileService:
                 "File metadata could not be persisted.",
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             ) from exc
+        processing_error = "File indexing failed."
         try:
             if file_kind == "image":
+                processing_error = "Image description failed."
                 text = await self.image_descriptions.describe_image(content, inferred_mime_type)
                 chunks = chunk_text(text, self.settings.chunk_size, self.settings.chunk_overlap)
                 if not chunks:
@@ -166,6 +171,7 @@ class FileService:
                         "INVALID_FILE_CONTENT",
                         "The image model returned no description.",
                     )
+            processing_error = "File indexing failed."
             if chunks is None:
                 raise ApiError("INVALID_FILE_CONTENT", "Document processing produced no chunks.")
             embeddings = await self.embeddings.embed_documents(chunks)
@@ -174,7 +180,12 @@ class FileService:
             file = await self.repository.set_processing_result(file, FileProcessingStatus.READY)
             await self.session.commit()
         except Exception as exc:
-            file = await self._mark_processing_failed(file_id, supervisor_id)
+            logger.exception("File processing failed during upload stage: %s", processing_error)
+            file = await self._mark_processing_failed(
+                file_id,
+                supervisor_id,
+                processing_error,
+            )
             raise ApiError(
                 "DOCUMENT_PROCESSING_FAILED",
                 "Document processing failed.",
@@ -390,6 +401,7 @@ class FileService:
         self,
         file_id: UUID,
         supervisor_id: UUID,
+        processing_error: str,
     ) -> File:
         await self.session.rollback()
         try:
@@ -403,7 +415,7 @@ class FileService:
             file = await self.repository.set_processing_result(
                 file,
                 FileProcessingStatus.FAILED,
-                "Document processing failed.",
+                processing_error,
             )
             await self.session.commit()
             return file

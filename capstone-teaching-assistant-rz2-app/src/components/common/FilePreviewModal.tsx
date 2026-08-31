@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo } from 'react';
 import { AlertCircle, Download, FileText, HardDrive, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { AttachedFile } from '../../types';
 import { formatBytes, formatDate } from '../../utils/formatters';
+import { remarkHtmlBreaks } from '../../utils/markdown';
 import { useApp } from '../../context/AppContext';
 
 interface FilePreviewModalProps {
@@ -75,7 +77,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
           ) : isPdf && file.dataUrl ? (
             <iframe src={file.dataUrl} title={file.name} className="h-[70vh] w-full rounded-xl bg-white" />
           ) : isMarkdown && textContent !== null ? (
-            <article className="prose mx-auto max-w-3xl dark:prose-invert"><ReactMarkdown>{textContent}</ReactMarkdown></article>
+            <article className="prose mx-auto max-w-3xl overflow-x-auto dark:prose-invert"><ReactMarkdown remarkPlugins={[remarkGfm, remarkHtmlBreaks]}>{textContent}</ReactMarkdown></article>
           ) : isText && textContent !== null ? (
             <pre className="mx-auto max-w-3xl whitespace-pre-wrap rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">{textContent}</pre>
           ) : (

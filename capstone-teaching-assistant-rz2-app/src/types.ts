@@ -42,6 +42,8 @@ export interface AttachedFile {
   isPreviewLoading?: boolean;
   previewError?: string;
   isImage?: boolean;
+  processingStatus?: 'PROCESSING' | 'READY' | 'FAILED';
+  processingError?: string;
 }
 
 export interface Message {

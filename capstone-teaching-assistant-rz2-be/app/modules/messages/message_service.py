@@ -57,7 +57,7 @@ class MessageService:
         )
         if creation_context is None:
             raise NotFoundError("Conversation not found.")
-        _conversation, preselected_file_ids, user_sequence = creation_context
+        conversation, preselected_file_ids, user_sequence = creation_context
 
         unique_file_ids = list(dict.fromkeys([*preselected_file_ids, *file_ids]))
         message_content = content or self.file_only_prompt
@@ -96,11 +96,16 @@ class MessageService:
             user_sequence,
             unique_file_ids,
         )
+        if user_sequence == 1 and conversation.title == "New conversation":
+            conversation.title = message_content[:42].strip()
+            if len(message_content) > 42:
+                conversation.title += "..."
 
         await self.session.commit()
         return MessageCreateResponseDTO(
             user_message=self._message_dto(user_message),
             assistant_message=self._message_dto(assistant_message),
+            conversation_title=conversation.title,
             stream_url=f"/api/v1/messages/{assistant_message.id}/stream",
         )
 
@@ -316,6 +321,11 @@ class MessageService:
                 (
                     "Answer clearly, use retrieved document context when it is relevant, "
                     "and say when context is insufficient."
+                ),
+                (
+                    "When using Markdown tables, follow GitHub-Flavored Markdown exactly: "
+                    "place a delimiter row immediately after the header and use at least "
+                    "three hyphens in every delimiter cell, for example | :--- | :--- |."
                 ),
                 f"Current UTC date and time: {current_time}",
                 f"Follow these project instructions when responding:\n{instructions}",

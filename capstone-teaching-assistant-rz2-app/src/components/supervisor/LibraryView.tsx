@@ -134,6 +134,10 @@ export const LibraryView: React.FC = () => {
     startConversationWithFiles(chosenFiles);
   };
 
+  const selectedFilesReadyForChat = libraryFiles
+    .filter(file => selectedFileIds.includes(file.id))
+    .every(file => !file.processingStatus || file.processingStatus === 'READY');
+
   // Upload handlers
   const handleUploadSubmit = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -205,7 +209,9 @@ export const LibraryView: React.FC = () => {
             <button
               id="bulk-start-conversation-btn"
               onClick={handleStartConversationWithSelected}
-              className="px-3 py-1.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              disabled={!selectedFilesReadyForChat}
+              title={selectedFilesReadyForChat ? 'Start Conversation' : 'All selected files must be ready for chat'}
+              className="px-3 py-1.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
             >
               <MessageSquarePlus className="w-3.5 h-3.5" />
               <span>Start Conversation</span>
@@ -300,6 +306,7 @@ export const LibraryView: React.FC = () => {
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {group.files.map(file => {
                         const isChecked = selectedFileIds.includes(file.id);
+                        const isReady = !file.processingStatus || file.processingStatus === 'READY';
 
                         return (
                           <tr 
@@ -333,6 +340,14 @@ export const LibraryView: React.FC = () => {
                                   </div>
                                 )}
                                 <span className="font-semibold underline decoration-transparent group-hover:decoration-blue-500 underline-offset-2 transition">{file.name}</span>
+                                {!isReady && (
+                                  <span
+                                    className="text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                                    title={file.processingError || 'This file is not ready for chat.'}
+                                  >
+                                    {file.processingStatus === 'FAILED' ? 'Failed' : 'Processing'}
+                                  </span>
+                                )}
                               </button>
                             </td>
                             <td className="py-3 px-3 font-mono text-[11px] text-slate-500">
@@ -354,8 +369,9 @@ export const LibraryView: React.FC = () => {
                                   onClick={() => {
                                     startConversationWithFiles([file], group.projectId);
                                   }}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
-                                  title="Start Conversation with this file"
+                                  disabled={!isReady}
+                                  className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                  title={isReady ? 'Start Conversation with this file' : file.processingError || 'This file is not ready for chat'}
                                 >
                                   <MessageSquarePlus className="w-3.5 h-3.5" />
                                 </button>
