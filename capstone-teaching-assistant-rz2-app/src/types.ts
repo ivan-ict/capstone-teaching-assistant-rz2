@@ -50,7 +50,13 @@ export interface Message {
   content: string;
   timestamp: string; // ISO format
   attachedFiles?: AttachedFile[];
-  references?: string[]; // references to documents/project context
+  references?: MessageReference[];
+}
+
+export interface MessageReference {
+  fileId: string;
+  filename: string;
+  content: string;
 }
 
 export interface Conversation {

@@ -1,8 +1,8 @@
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
-from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.auth import CurrentUser, get_current_supervisor
@@ -100,12 +100,11 @@ async def delete_file(
 
 @file_router.get(
     "/{file_id}/download",
-    status_code=status.HTTP_302_FOUND,
-    response_class=RedirectResponse,
+    status_code=status.HTTP_200_OK,
     responses={
-        status.HTTP_302_FOUND: {
-            "description": "Temporary redirect to a signed object storage URL.",
-            "content": {},
+        status.HTTP_200_OK: {
+            "description": "Stored file content.",
+            "content": {"application/octet-stream": {}},
         }
     },
 )
@@ -114,8 +113,13 @@ async def download_file(
     current_user: CurrentSupervisorDependency,
     session: DatabaseSessionDependency,
 ):
-    url = await FileService(session).get_download_url(current_user.id, file_id)
-    return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
+    file, content = await FileService(session).download_file(current_user.id, file_id)
+    encoded_filename = quote(file.original_filename)
+    return Response(
+        content=content,
+        media_type=file.mime_type,
+        headers={"Content-Disposition": (f"attachment; filename*=UTF-8''{encoded_filename}")},
+    )
 
 
 async def _read_limited_upload(file: UploadFile, max_upload_bytes: int) -> bytes:

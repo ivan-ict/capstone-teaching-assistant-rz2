@@ -60,16 +60,19 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
       return;
     }
 
-    await updateSupervisor(supervisor.id, {
+    const result = await updateSupervisor(supervisor.id, {
       firstName: formData.firstName.trim(),
       lastName: formData.lastName.trim(),
-      username: cleanUsername,
       email: formData.email.trim(),
       phone: formData.phone.trim(),
       faculty: formData.faculty,
       teachingYear: formData.teachingYear,
       teachingSemester: formData.teachingSemester,
     });
+    if (!result.success) {
+      setError(result.message || 'Could not update supervisor.');
+      return;
+    }
 
     setIsSuccess(true);
     setTimeout(() => {
@@ -113,7 +116,7 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-4">
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0" />
@@ -169,11 +172,10 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
               <input
                 id="edit-supervisor-username"
                 type="text"
-                required
+                readOnly
                 placeholder="e.g. ivantrinh"
                 value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed"
               />
             </div>
 

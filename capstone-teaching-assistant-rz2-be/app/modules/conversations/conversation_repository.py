@@ -229,16 +229,15 @@ class ConversationRepository:
         await self.session.flush()
         return files
 
-    async def dissociate_preselected_file(self, conversation_id: UUID, file_id: UUID) -> bool:
+    async def dissociate_file(self, conversation_id: UUID, file_id: UUID) -> bool:
         result = await self.session.execute(
             update(MessageFile)
             .where(
                 MessageFile.conversation_id == conversation_id,
                 MessageFile.file_id == file_id,
-                MessageFile.message_id.is_(None),
                 MessageFile.deleted_at.is_(None),
             )
             .values(deleted_at=datetime.now(UTC))
         )
         await self.session.flush()
-        return result.rowcount == 1
+        return bool(getattr(result, "rowcount", 0))

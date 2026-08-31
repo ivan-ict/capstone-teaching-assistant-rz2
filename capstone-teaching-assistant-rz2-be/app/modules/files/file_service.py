@@ -263,16 +263,17 @@ class FileService:
             content=text,
         )
 
-    async def get_download_url(self, supervisor_id: UUID, file_id: UUID) -> str:
+    async def download_file(self, supervisor_id: UUID, file_id: UUID) -> tuple[File, bytes]:
         file = await self._get_file(supervisor_id, file_id)
         try:
-            return await asyncio.to_thread(self.storage.presigned_download_url, file.storage_path)
+            content = await asyncio.to_thread(self.storage.download_bytes, file.storage_path)
         except Exception as exc:
             raise ApiError(
-                "OBJECT_STORAGE_DOWNLOAD_URL_FAILED",
-                "Object storage download URL generation failed.",
+                "OBJECT_STORAGE_DOWNLOAD_FAILED",
+                "Object storage download failed.",
                 status.HTTP_502_BAD_GATEWAY,
             ) from exc
+        return file, content
 
     async def _get_file(self, supervisor_id: UUID, file_id: UUID) -> File:
         file = await self.repository.get_for_supervisor(file_id, supervisor_id)

@@ -63,8 +63,8 @@ class FailingDeleteStorage(FakeStorage):
 
 
 class FailingDownloadStorage(FakeStorage):
-    def presigned_download_url(self, storage_path: str, expires_in_seconds: int = 3600) -> str:
-        msg = "storage download URL failed"
+    def download_bytes(self, storage_path: str) -> bytes:
+        msg = "storage download failed"
         raise RuntimeError(msg)
 
 
@@ -416,7 +416,7 @@ async def test_delete_rolls_back_database_when_storage_delete_fails(
 
 
 @pytest.mark.asyncio
-async def test_download_url_shapes_storage_failure(session: AsyncSession) -> None:
+async def test_download_shapes_storage_failure(session: AsyncSession) -> None:
     file = File(
         supervisor_id=DEV_SUPERVISOR_ID,
         original_filename="notes.txt",
@@ -437,9 +437,9 @@ async def test_download_url_shapes_storage_failure(session: AsyncSession) -> Non
     )
 
     with pytest.raises(ApiError) as exc:
-        await service.get_download_url(DEV_SUPERVISOR_ID, file.id)
+        await service.download_file(DEV_SUPERVISOR_ID, file.id)
 
-    assert exc.value.code == "OBJECT_STORAGE_DOWNLOAD_URL_FAILED"
+    assert exc.value.code == "OBJECT_STORAGE_DOWNLOAD_FAILED"
     assert exc.value.http_status == 502
 
 

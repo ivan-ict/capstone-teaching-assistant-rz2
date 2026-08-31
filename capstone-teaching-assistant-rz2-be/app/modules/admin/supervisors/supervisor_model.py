@@ -25,7 +25,7 @@ class SupervisorCreateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: SupervisorName
-    password: str = Field(min_length=8, max_length=MAX_PASSWORD_LENGTH)
+    password: str = Field(min_length=9, max_length=MAX_PASSWORD_LENGTH)
     first_name: SupervisorName
     last_name: SupervisorName
     email: EmailStr = Field(max_length=320)
@@ -137,7 +137,7 @@ class SupervisorStatusResponseDTO(BaseModel):
 class SupervisorPasswordUpdateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    new_password: str = Field(min_length=8, max_length=MAX_PASSWORD_LENGTH)
+    new_password: str = Field(min_length=9, max_length=MAX_PASSWORD_LENGTH)
 
 
 class SupervisorPasswordUpdateResponseDTO(BaseModel):

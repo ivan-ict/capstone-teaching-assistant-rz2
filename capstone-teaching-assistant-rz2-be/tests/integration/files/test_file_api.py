@@ -90,11 +90,13 @@ async def test_file_upload_list_detail_download_and_delete(
     download_response = await client.get(f"/api/v1/files/{uploaded['id']}", follow_redirects=False)
     assert download_response.status_code == 200
 
-    redirect_response = await client.get(
+    download_response = await client.get(
         f"/api/v1/files/{uploaded['id']}/download", follow_redirects=False
     )
-    assert redirect_response.status_code == 302
-    assert redirect_response.headers["location"].startswith("http://storage.local/")
+    assert download_response.status_code == 200
+    assert download_response.content == b"Capstone handbook guidance for teams."
+    assert download_response.headers["content-type"].startswith("text/plain")
+    assert "handbook.txt" in download_response.headers["content-disposition"]
 
     delete_response = await client.delete(f"/api/v1/files/{uploaded['id']}")
     assert delete_response.status_code == 204
@@ -131,14 +133,14 @@ async def test_file_content_preview_and_bulk_delete(
 
 
 @pytest.mark.asyncio
-async def test_openapi_documents_file_download_as_redirect(client: AsyncClient) -> None:
+async def test_openapi_documents_file_download_as_binary_response(client: AsyncClient) -> None:
     response = await client.get("/openapi.json")
 
     assert response.status_code == 200
     download_response = response.json()["paths"]["/api/v1/files/{file_id}/download"]["get"][
         "responses"
-    ]["302"]
-    assert download_response["content"] == {}
+    ]["200"]
+    assert "application/octet-stream" in download_response["content"]
 
 
 @pytest.mark.asyncio

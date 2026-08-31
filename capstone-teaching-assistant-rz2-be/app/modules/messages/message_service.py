@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import status
@@ -133,9 +134,7 @@ class MessageService:
             try:
                 history = await self.repository.list_history_before(assistant_message)
                 query_embedding = (
-                    await embedding_task
-                    if embedding_task is not None
-                    else user_message.embedding
+                    await embedding_task if embedding_task is not None else user_message.embedding
                 )
             except BaseException:
                 if embedding_task is not None:
@@ -309,6 +308,7 @@ class MessageService:
     ) -> str:
         context_text = self.mcp_registry.format_retrieved_chunks(context)
         instructions = project_instructions or "No project-specific instructions were provided."
+        current_time = datetime.now(UTC).isoformat()
         message_context = self._format_relevant_messages(relevant_messages)
         return "\n\n".join(
             [
@@ -317,7 +317,8 @@ class MessageService:
                     "Answer clearly, use retrieved document context when it is relevant, "
                     "and say when context is insufficient."
                 ),
-                f"Project instructions:\n{instructions}",
+                f"Current UTC date and time: {current_time}",
+                f"Follow these project instructions when responding:\n{instructions}",
                 f"Relevant prior messages:\n{message_context}",
                 f"Retrieved context:\n{context_text}",
             ]

@@ -17,7 +17,7 @@ interface AppContextType {
   setThemeMode: (mode: ThemeMode) => void;
   isDark: boolean;
   currentUser: User | null;
-  login: (username: string, password?: string) => Promise<boolean>;
+  login: (username: string, password?: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   updateCurrentUser: (userData: Partial<User>) => void;
   changeCurrentUserPassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
@@ -25,14 +25,14 @@ interface AppContextType {
   setActiveAdminView: (view: AdminActiveView) => void;
   supervisors: User[];
   faculties: Faculty[];
-  addSupervisor: (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status'>) => Promise<void>;
-  updateSupervisor: (id: string, data: Partial<User>) => Promise<void>;
+  addSupervisor: (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status'>) => Promise<{ success: boolean; message?: string }>;
+  updateSupervisor: (id: string, data: Partial<User>) => Promise<{ success: boolean; message?: string }>;
   suspendSupervisor: (id: string) => Promise<void>;
   activateSupervisor: (id: string) => Promise<void>;
   changeSupervisorPassword: (id: string, newPassword: string) => Promise<boolean>;
   deleteSupervisor: (id: string) => Promise<void>;
-  addFaculty: (faculty: Omit<Faculty, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
-  updateFaculty: (id: string, faculty: Partial<Faculty>) => Promise<void>;
+  addFaculty: (faculty: Omit<Faculty, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; message?: string }>;
+  updateFaculty: (id: string, faculty: Partial<Faculty>) => Promise<{ success: boolean; message?: string }>;
   deleteFaculty: (id: string) => Promise<boolean>;
   activeSupervisorView: SupervisorActiveView;
   setActiveSupervisorView: (view: SupervisorActiveView) => void;
@@ -48,7 +48,7 @@ interface AppContextType {
   expandedProjectIds: string[];
   toggleProjectExpanded: (projectId: string) => void;
   createProject: (name: string, instructions?: string) => Promise<Project | null>;
-  updateProject: (id: string, name: string, instructions?: string) => Promise<void>;
+  updateProject: (id: string, name: string, instructions?: string) => Promise<{ success: boolean; message?: string }>;
   deleteProject: (id: string) => Promise<void>;
   createConversation: (projectId?: string | null, customTitle?: string) => Promise<Conversation | null>;
   renameConversation: (id: string, newTitle: string) => Promise<void>;
@@ -59,7 +59,7 @@ interface AppContextType {
   uploadFiles: (files: FileList | File[]) => Promise<AttachedFile[]>;
   deleteFile: (fileId: string) => Promise<void>;
   deleteFilesBulk: (fileIds: string[]) => Promise<void>;
-  removeFileFromProject: (projectId: string, fileId: string) => Promise<void>;
+  removeFileFromProject: (projectId: string, fileId: string) => Promise<{ success: boolean; message?: string }>;
   downloadFile: (file: AttachedFile) => Promise<void>;
   isSearchModalOpen: boolean;
   setIsSearchModalOpen: (open: boolean) => void;
@@ -81,7 +81,6 @@ interface AppContextType {
   fileToPreview: AttachedFile | null;
   setFileToPreview: (file: AttachedFile | null) => void;
   previewFile: (file: AttachedFile) => void;
-  quickLoginAs: (role: 'admin' | 'supervisor') => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -90,17 +89,6 @@ const STORAGE_KEYS = {
   THEME: 'cta_theme_mode',
   TOKEN: 'cta_access_token',
   AUTH_USER: 'cta_auth_user',
-};
-
-const DEMO_CREDENTIALS = {
-  admin: {
-    username: import.meta.env.VITE_DEMO_ADMIN_USERNAME || 'admin',
-    password: import.meta.env.VITE_DEMO_ADMIN_PASSWORD || 'AdminPassword123!',
-  },
-  supervisor: {
-    username: import.meta.env.VITE_DEMO_SUPERVISOR_USERNAME || 'supervisor',
-    password: import.meta.env.VITE_DEMO_SUPERVISOR_PASSWORD || 'super123',
-  },
 };
 
 const avatarColors = ['bg-blue-600', 'bg-emerald-600', 'bg-indigo-600', 'bg-purple-600', 'bg-teal-600', 'bg-amber-600'];
@@ -289,7 +277,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [activeConversationId, loadConversationMessages]);
 
-  const login = async (username: string, password = ''): Promise<boolean> => {
+  const login = async (username: string, password = ''): Promise<{ success: boolean; message?: string }> => {
     try {
       await api.login(username.trim(), password);
       const account = await api.getAccount();
@@ -298,8 +286,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (user.status === 'suspended') {
         await api.logout();
         setCurrentUser(null);
-        alert('This account is currently inactive. Please contact the administrator.');
-        return false;
+        return { success: false, message: 'This account is currently inactive. Please contact the administrator.' };
       }
       if (user.role === 'admin') {
         setActiveAdminView('supervisors');
@@ -310,10 +297,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFaculties(nextFaculties);
         await refreshSupervisorData();
       }
-      return true;
+      return { success: true };
     } catch (error) {
-      showError(error, 'Invalid username or password.');
-      return false;
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Invalid username or password.',
+      };
     }
   };
 
@@ -325,6 +314,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setConversations([]);
     setLibraryFiles([]);
     setActiveConversationId(null);
+    setIsProfileModalOpen(false);
   };
 
   const updateCurrentUser = () => {
@@ -341,17 +331,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const quickLoginAs = async (role: 'admin' | 'supervisor') => {
-    const credentials = DEMO_CREDENTIALS[role];
-    await login(credentials.username, credentials.password);
-  };
-
   const addSupervisor = async (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status'>) => {
     try {
       await api.createSupervisor(data, faculties);
       await refreshAdminData();
+      return { success: true };
     } catch (error) {
-      showError(error, 'Could not create supervisor.');
+      return { success: false, message: error instanceof Error ? error.message : 'Could not create supervisor.' };
     }
   };
 
@@ -363,8 +349,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       await api.updateSupervisor(id, data, faculties);
       await refreshAdminData();
+      return { success: true };
     } catch (error) {
-      showError(error, 'Could not update supervisor.');
+      return { success: false, message: error instanceof Error ? error.message : 'Could not update supervisor.' };
     }
   };
 
@@ -409,8 +396,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await api.createFaculty({ name: faculty.name, code: faculty.code });
       await refreshAdminData();
+      return { success: true };
     } catch (error) {
-      showError(error, 'Could not create faculty.');
+      return { success: false, message: error instanceof Error ? error.message : 'Could not create faculty.' };
     }
   };
 
@@ -418,8 +406,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await api.updateFaculty(id, faculty);
       await refreshAdminData();
+      return { success: true };
     } catch (error) {
-      showError(error, 'Could not update faculty.');
+      return { success: false, message: error instanceof Error ? error.message : 'Could not update faculty.' };
     }
   };
 
@@ -458,8 +447,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await api.updateProject(id, name.trim(), instructions);
       await refreshSupervisorData();
+      return { success: true };
     } catch (error) {
-      showError(error, 'Could not update project.');
+      return { success: false, message: error instanceof Error ? error.message : 'Could not update project.' };
     }
   };
 
@@ -674,17 +664,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const removeFileFromProject = async (projectId: string, fileId: string) => {
     const projectConversations = conversations.filter(conversation => conversation.projectId === projectId);
     if (!projectConversations.length) {
-      alert('Project files are derived from conversations, but this project has no conversations to update.');
-      return;
+      return { success: false, message: 'This project has no conversations containing the file.' };
     }
-    try {
-      await Promise.all(projectConversations.map(conversation =>
-        api.dissociateConversationFile(conversation.id, fileId).catch(() => undefined)
-      ));
-      await refreshSupervisorData();
-    } catch (error) {
-      showError(error, 'Could not remove file from project context.');
+    const results = await Promise.allSettled(
+      projectConversations.map(conversation => api.dissociateConversationFile(conversation.id, fileId)),
+    );
+    const removedCount = results.filter(result => result.status === 'fulfilled').length;
+    const unexpectedFailure = results.find(result =>
+      result.status === 'rejected'
+      && (!(result.reason instanceof ApiClientError) || result.reason.status !== 404)
+    );
+    await refreshSupervisorData();
+    if (unexpectedFailure?.status === 'rejected') {
+      return {
+        success: false,
+        message: unexpectedFailure.reason instanceof Error
+          ? unexpectedFailure.reason.message
+          : 'Could not remove file from project context.',
+      };
     }
+    return removedCount > 0
+      ? { success: true }
+      : { success: false, message: 'The file was not associated with any loaded project conversation.' };
   };
 
   const downloadFile = async (file: AttachedFile) => {
@@ -824,7 +825,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fileToPreview,
         setFileToPreview,
         previewFile,
-        quickLoginAs,
       }}
     >
       {children}

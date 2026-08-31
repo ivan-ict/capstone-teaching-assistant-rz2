@@ -43,7 +43,7 @@ export const ProjectSettingsModal: React.FC = () => {
 
   const projectFiles = libraryFiles.filter(f => f.projectIds?.includes(projectToEdit.id));
 
-  const handleSaveGeneral = (e: React.FormEvent) => {
+  const handleSaveGeneral = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     const cleanName = name.trim();
@@ -58,7 +58,11 @@ export const ProjectSettingsModal: React.FC = () => {
       return;
     }
 
-    updateProject(projectToEdit.id, cleanName, instructions);
+    const result = await updateProject(projectToEdit.id, cleanName, instructions);
+    if (!result.success) {
+      setErrorMessage(result.message || 'Could not update project.');
+      return;
+    }
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);
   };
@@ -128,14 +132,13 @@ export const ProjectSettingsModal: React.FC = () => {
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6">
+          {errorMessage && (
+            <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+              {errorMessage}
+            </div>
+          )}
           {activeTab === 'general' ? (
-            <form onSubmit={handleSaveGeneral} className="space-y-4">
-              {errorMessage && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
-                  {errorMessage}
-                </div>
-              )}
-
+            <form onSubmit={handleSaveGeneral} noValidate className="space-y-4">
               {savedSuccess && (
                 <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
                   <Check className="w-4 h-4" />
@@ -282,6 +285,11 @@ export const ProjectSettingsModal: React.FC = () => {
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
               File <strong className="text-slate-900 dark:text-white">"{fileToRemove.name}"</strong> will be permanently removed from this project context.
             </p>
+            {errorMessage && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+                {errorMessage}
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
@@ -295,8 +303,13 @@ export const ProjectSettingsModal: React.FC = () => {
                 id="confirm-delete-project-file-btn"
                 type="button"
                 onClick={async () => {
-                  await removeFileFromProject(projectToEdit.id, fileToRemove.id);
-                  setFileToRemove(null);
+                  setErrorMessage('');
+                  const result = await removeFileFromProject(projectToEdit.id, fileToRemove.id);
+                  if (result.success) {
+                    setFileToRemove(null);
+                  } else {
+                    setErrorMessage(result.message || 'Could not remove file from project context.');
+                  }
                 }}
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
               >

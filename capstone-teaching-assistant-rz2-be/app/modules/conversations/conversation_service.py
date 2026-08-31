@@ -21,8 +21,8 @@ from app.modules.conversations.conversation_model import (
     MessageFileDTO,
     ProjectSummaryDTO,
 )
-from app.modules.messages.message_model import MessageSourceDTO
 from app.modules.conversations.conversation_repository import ConversationRepository
+from app.modules.messages.message_model import MessageSourceDTO
 
 
 class ConversationService:
@@ -138,14 +138,20 @@ class ConversationService:
                             id=message_file.file.id,
                             original_filename=message_file.file.original_filename,
                             mime_type=message_file.file.mime_type,
+                            file_size_bytes=message_file.file.file_size_bytes,
+                            created_at=message_file.file.created_at,
                         )
                         for message_file in message.files
                         if message_file.deleted_at is None and message_file.file.deleted_at is None
                     ],
                     sources=[
                         MessageSourceDTO(
-                            chunk_id=source.get("chunk_id"),
-                            file_id=source["file_id"],
+                            chunk_id=(
+                                UUID(str(source["chunk_id"]))
+                                if source.get("chunk_id") is not None
+                                else None
+                            ),
+                            file_id=UUID(str(source["file_id"])),
                             original_filename=str(source["original_filename"]),
                             content=str(source["content"]),
                         )
@@ -170,6 +176,7 @@ class ConversationService:
                     mime_type=file.mime_type,
                     file_size_bytes=file.file_size_bytes,
                     processing_status=file.processing_status,
+                    created_at=file.created_at,
                 )
                 for file in files
             ]
@@ -222,7 +229,7 @@ class ConversationService:
         self, supervisor_id: UUID, conversation_id: UUID, file_id: UUID
     ) -> None:
         await self._get_conversation(supervisor_id, conversation_id)
-        removed = await self.repository.dissociate_preselected_file(conversation_id, file_id)
+        removed = await self.repository.dissociate_file(conversation_id, file_id)
         if not removed:
             raise NotFoundError("Conversation file association not found.")
         await self.session.commit()

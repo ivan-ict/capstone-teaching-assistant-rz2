@@ -25,6 +25,10 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ superv
       setError('Password cannot be empty');
       return;
     }
+    if (newPassword.length < 9) {
+      setError('Password must be at least 9 characters long.');
+      return;
+    }
 
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match. Please verify.');
@@ -70,7 +74,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ superv
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-4">
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
               {error}
@@ -92,7 +96,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ superv
               id="new-password-input"
               type="password"
               required
-              placeholder="Enter new password"
+              placeholder="Enter new password (minimum 9 characters)"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

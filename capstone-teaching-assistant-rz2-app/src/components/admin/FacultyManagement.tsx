@@ -29,6 +29,7 @@ export const FacultyManagement: React.FC = () => {
   const [currentFaculty, setCurrentFaculty] = useState<Faculty | null>(null);
   const [formData, setFormData] = useState({ name: '' });
   const [deleteTarget, setDeleteTarget] = useState<Faculty | null>(null);
+  const [formError, setFormError] = useState('');
 
   // Compute supervisor count per faculty (total assigned supervisors with active/suspended breakdown)
   const facultyListWithCounts = faculties.map(f => {
@@ -52,19 +53,28 @@ export const FacultyManagement: React.FC = () => {
   const handleOpenAdd = () => {
     setFormData({ name: '' });
     setCurrentFaculty(null);
+    setFormError('');
     setModalMode('add');
   };
 
   const handleOpenEdit = (fac: Faculty) => {
     setFormData({ name: fac.name });
     setCurrentFaculty(fac);
+    setFormError('');
     setModalMode('edit');
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = formData.name.trim();
-    if (!cleanName) return;
+    if (!cleanName) {
+      setFormError('Faculty name is required.');
+      return;
+    }
+    if (faculties.some(faculty => faculty.id !== currentFaculty?.id && faculty.name.toLowerCase() === cleanName.toLowerCase())) {
+      setFormError('A faculty with this name already exists.');
+      return;
+    }
 
     // Generate a fallback code for internal key/tag if new
     const words = cleanName.split(/\s+/).filter(Boolean);
@@ -72,16 +82,18 @@ export const FacultyManagement: React.FC = () => {
       ? words.map(w => w[0]).join('').toUpperCase().slice(0, 5)
       : cleanName.slice(0, 4).toUpperCase();
 
-    if (modalMode === 'add') {
-      await addFaculty({
+    const result = modalMode === 'add'
+      ? await addFaculty({
         name: cleanName,
         code: generatedCode,
         departmentHead: 'Unassigned',
-      });
-    } else if (modalMode === 'edit' && currentFaculty) {
-      await updateFaculty(currentFaculty.id, {
-        name: cleanName,
-      });
+      })
+      : modalMode === 'edit' && currentFaculty
+        ? await updateFaculty(currentFaculty.id, { name: cleanName })
+        : { success: false, message: 'Faculty form is not available.' };
+    if (!result.success) {
+      setFormError(result.message || 'Could not save faculty.');
+      return;
     }
 
     setModalMode(null);
@@ -245,7 +257,12 @@ export const FacultyManagement: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="space-y-3.5">
+            <form onSubmit={handleSave} noValidate className="space-y-3.5">
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+                  {formError}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Faculty Name *

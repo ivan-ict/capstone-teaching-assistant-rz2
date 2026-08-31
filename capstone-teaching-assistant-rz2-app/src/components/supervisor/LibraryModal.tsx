@@ -24,13 +24,13 @@ interface LibraryModalProps {
 
 export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onSelectFiles }) => {
   const { libraryFiles, projects, previewFile } = useApp();
-  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  const [selectedFileRows, setSelectedFileRows] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Reset selection and search whenever modal opens
   React.useEffect(() => {
     if (isOpen) {
-      setSelectedFileIds([]);
+      setSelectedFileRows([]);
       setSearchQuery('');
     }
   }, [isOpen]);
@@ -87,28 +87,32 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
 
   if (!isOpen) return null;
 
-  const toggleFile = (fileId: string) => {
+  const rowKey = (projectId: string | null, fileId: string) => `${projectId || 'uncategorised'}:${fileId}`;
+
+  const toggleFile = (projectId: string | null, fileId: string) => {
     if (!fileId) return;
-    setSelectedFileIds(prev => 
-      prev.includes(fileId) ? prev.filter(id => id !== fileId) : [...prev, fileId]
+    const key = rowKey(projectId, fileId);
+    setSelectedFileRows(prev =>
+      prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]
     );
   };
 
-  const toggleSelectAllProject = (projectFiles: AttachedFile[]) => {
-    const projIds = (projectFiles || []).map(f => f?.id).filter(Boolean) as string[];
-    if (projIds.length === 0) return;
-    const allSelected = projIds.every(id => selectedFileIds.includes(id));
+  const toggleSelectAllProject = (projectId: string | null, projectFiles: AttachedFile[]) => {
+    const projectRows = projectFiles.map(file => rowKey(projectId, file.id));
+    if (projectRows.length === 0) return;
+    const allSelected = projectRows.every(key => selectedFileRows.includes(key));
 
     if (allSelected) {
-      setSelectedFileIds(prev => prev.filter(id => !projIds.includes(id)));
+      setSelectedFileRows(prev => prev.filter(key => !projectRows.includes(key)));
     } else {
-      setSelectedFileIds(prev => Array.from(new Set([...prev, ...projIds])));
+      setSelectedFileRows(prev => Array.from(new Set([...prev, ...projectRows])));
     }
   };
 
   const handleConfirm = () => {
     const rawFiles = Array.isArray(libraryFiles) ? libraryFiles.filter(Boolean) : [];
-    const chosen = rawFiles.filter(f => f && f.id && selectedFileIds.includes(f.id));
+    const selectedIds = new Set(selectedFileRows.map(key => key.slice(key.indexOf(':') + 1)));
+    const chosen = rawFiles.filter(f => f && f.id && selectedIds.has(f.id));
     onSelectFiles(chosen);
     onClose();
   };
@@ -170,7 +174,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
             </div>
           ) : (
             groupedFiles.map(group => {
-              const allProjSelected = group.files.length > 0 && group.files.every(f => selectedFileIds.includes(f.id));
+              const allProjSelected = group.files.length > 0 && group.files.every(f => selectedFileRows.includes(rowKey(group.projectId, f.id)));
 
               return (
                 <div key={group.projectName} className="space-y-2.5">
@@ -190,7 +194,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                     {!group.isUncategorised && group.files.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => toggleSelectAllProject(group.files)}
+                        onClick={() => toggleSelectAllProject(group.projectId, group.files)}
                         className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1.5 cursor-pointer"
                       >
                         {allProjSelected ? (
@@ -223,11 +227,11 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                           {group.files.map(file => {
                             if (!file) return null;
-                            const isChecked = selectedFileIds.includes(file.id);
+                            const isChecked = selectedFileRows.includes(rowKey(group.projectId, file.id));
                             return (
                               <tr
                                 key={file.id}
-                                onClick={() => toggleFile(file.id)}
+                                onClick={() => toggleFile(group.projectId, file.id)}
                                 className={`cursor-pointer transition ${
                                   isChecked 
                                     ? 'bg-blue-50/70 dark:bg-blue-950/30 text-blue-950 dark:text-blue-100 font-medium' 
@@ -240,7 +244,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
                                     checked={isChecked}
                                     onChange={(e) => {
                                       e.stopPropagation();
-                                      toggleFile(file.id);
+                                      toggleFile(group.projectId, file.id);
                                     }}
                                     onClick={(e) => e.stopPropagation()}
                                     className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -289,7 +293,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
         {/* Footer actions */}
         <div className="px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50 dark:bg-slate-900">
           <div className="text-xs text-slate-500">
-            <strong>{selectedFileIds.length}</strong> {selectedFileIds.length === 1 ? 'file' : 'files'} selected
+            <strong>{selectedFileRows.length}</strong> {selectedFileRows.length === 1 ? 'file' : 'files'} selected
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -303,12 +307,12 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose, onS
             <button
               id="attach-selected-library-files-btn"
               type="button"
-              disabled={selectedFileIds.length === 0}
+              disabled={selectedFileRows.length === 0}
               onClick={handleConfirm}
               className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>Attach Selected ({selectedFileIds.length})</span>
+              <span>Attach Selected ({selectedFileRows.length})</span>
             </button>
           </div>
         </div>

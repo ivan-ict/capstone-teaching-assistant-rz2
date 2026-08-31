@@ -74,7 +74,7 @@ export const ProfileModal: React.FC = () => {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (currentUser.password && !currentPassword.trim()) {
+    if (!currentPassword.trim()) {
       setErrorMsg('Please enter your current password.');
       return;
     }
@@ -84,8 +84,8 @@ export const ProfileModal: React.FC = () => {
       return;
     }
 
-    if (newPassword.length < 4) {
-      setErrorMsg('New password must be at least 4 characters long.');
+    if (newPassword.length < 9) {
+      setErrorMsg('New password must be at least 9 characters long.');
       return;
     }
 
@@ -94,7 +94,7 @@ export const ProfileModal: React.FC = () => {
       return;
     }
 
-    if (currentUser.password && currentPassword === newPassword) {
+    if (currentPassword === newPassword) {
       setErrorMsg('New password must be different from your current password.');
       return;
     }
@@ -277,7 +277,7 @@ export const ProfileModal: React.FC = () => {
             </div>
           ) : (
             /* CHANGE PASSWORD FORM */
-            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+            <form onSubmit={handlePasswordSubmit} noValidate className="space-y-4">
               {errorMsg && (
                 <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2 font-medium animate-in fade-in">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -327,7 +327,7 @@ export const ProfileModal: React.FC = () => {
                     id="new-password-input"
                     type={showNewPw ? 'text' : 'password'}
                     required
-                    placeholder="Enter new password (min. 4 characters)"
+                    placeholder="Enter new password (min. 9 characters)"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

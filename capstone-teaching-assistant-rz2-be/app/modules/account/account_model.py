@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +28,7 @@ class AccountDTO(BaseModel):
     username: str
     role: UserRole
     status: AccountStatus
+    created_at: datetime
     profile: AccountProfileDTO | None = None
 
 
@@ -34,7 +36,7 @@ class PasswordChangeDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     current_password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
-    new_password: str = Field(min_length=8, max_length=MAX_PASSWORD_LENGTH)
+    new_password: str = Field(min_length=9, max_length=MAX_PASSWORD_LENGTH)
 
 
 class PasswordChangeResponseDTO(BaseModel):

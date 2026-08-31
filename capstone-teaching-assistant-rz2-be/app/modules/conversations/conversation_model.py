@@ -72,6 +72,8 @@ class MessageFileDTO(BaseModel):
     id: UUID
     original_filename: str
     mime_type: str | None = None
+    file_size_bytes: int
+    created_at: datetime
 
 
 class ConversationMessageDTO(BaseModel):
@@ -95,6 +97,7 @@ class ConversationFileDTO(BaseModel):
     mime_type: str
     file_size_bytes: int
     processing_status: FileProcessingStatus
+    created_at: datetime
 
 
 class ConversationFileListDTO(BaseModel):

@@ -159,12 +159,13 @@ async def test_conversation_messages_and_files(client: AsyncClient, session: Asy
             "mime_type": "application/pdf",
             "file_size_bytes": 528944,
             "processing_status": "READY",
+            "created_at": file.created_at.isoformat().replace("+00:00", "Z"),
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_conversation_search_and_preselected_file_dissociation(
+async def test_conversation_file_dissociation_soft_deletes_context_and_message_links(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team Contribution")
@@ -180,30 +181,39 @@ async def test_conversation_search_and_preselected_file_dissociation(
     )
     session.add_all([conversation, file])
     await session.flush()
-    session.add_all(
-        [
-            Message(
-                conversation_id=conversation.id,
-                role=MessageRole.USER,
-                content="How should I handle contribution disputes?",
-                status=MessageStatus.COMPLETED,
-                sequence_no=1,
-            ),
-            MessageFile(conversation_id=conversation.id, message_id=None, file_id=file.id),
-        ]
+    message = Message(
+        conversation_id=conversation.id,
+        role=MessageRole.USER,
+        content="How should I handle contribution disputes?",
+        status=MessageStatus.COMPLETED,
+        sequence_no=1,
     )
+    session.add(message)
+    await session.flush()
+    links = [
+        MessageFile(conversation_id=conversation.id, message_id=None, file_id=file.id),
+        MessageFile(conversation_id=conversation.id, message_id=message.id, file_id=file.id),
+    ]
+    session.add_all(links)
     await session.commit()
 
     search_response = await client.get("/api/v1/conversations/search", params={"query": "disputes"})
     assert search_response.status_code == 200
     assert [item["id"] for item in search_response.json()["items"]] == [str(conversation.id)]
 
-    delete_response = await client.delete(f"/api/v1/conversations/{conversation.id}/files/{file.id}")
+    delete_response = await client.delete(
+        f"/api/v1/conversations/{conversation.id}/files/{file.id}"
+    )
     assert delete_response.status_code == 204
 
     files_response = await client.get(f"/api/v1/conversations/{conversation.id}/files")
     assert files_response.status_code == 200
     assert files_response.json()["items"] == []
+    for link in links:
+        await session.refresh(link)
+        assert link.deleted_at is not None
+    await session.refresh(file)
+    assert file.deleted_at is None
 
 
 @pytest.mark.asyncio

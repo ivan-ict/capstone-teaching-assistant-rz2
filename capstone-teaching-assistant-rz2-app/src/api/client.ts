@@ -31,6 +31,7 @@ interface AccountDTO {
   username: string;
   role: UserRoleDTO;
   status: AccountStatus;
+  created_at: string;
   profile: {
     first_name: string;
     last_name: string;
@@ -111,6 +112,8 @@ interface ConversationMessageDTO {
     id: string;
     original_filename: string;
     mime_type?: string | null;
+    file_size_bytes: number;
+    created_at: string;
   }[];
   sources?: {
     file_id: string;
@@ -536,7 +539,7 @@ export function mapAccount(dto: AccountDTO): User {
     faculty: profile?.faculty.name || '',
     role: dto.role === 'ADMIN' ? 'admin' : 'supervisor',
     status: dto.status === 'ACTIVE' ? 'active' : 'suspended',
-    createdAt: '',
+    createdAt: dto.created_at,
     updatedAt: '',
   };
 }
@@ -637,12 +640,16 @@ function mapMessage(dto: ConversationMessageDTO): Message {
     attachedFiles: dto.files.map(file => ({
       id: file.id,
       name: file.original_filename,
-      size: 0,
+      size: file.file_size_bytes,
       type: file.mime_type || 'application/octet-stream',
-      uploadedAt: dto.created_at,
+      uploadedAt: file.created_at,
       isImage: Boolean(file.mime_type?.startsWith('image/')),
     })),
-    references: dto.sources?.map(source => `${source.original_filename}: ${source.content}`),
+    references: dto.sources?.map(source => ({
+      fileId: source.file_id,
+      filename: source.original_filename,
+      content: source.content,
+    })),
   };
 }
 

@@ -312,7 +312,10 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
 1. *"Verify that patient IDs from the same subject do not cross training and validation partitions to avoid data contamination."*
 2. *"Include confidence calibration curves (e.g. Expected Calibration Error) alongside raw accuracy metrics."*`,
         timestamp: '2026-08-24T09:01:15.000Z',
-        references: ['Capstone_Project_Charter_2026.pdf', 'Project Instructions (AI Health Diagnosis)'],
+        references: [
+          { fileId: 'file-1', filename: 'Capstone_Project_Charter_2026.pdf', content: 'Capstone project charter context.' },
+          { fileId: 'project-context-1', filename: 'Project Instructions (AI Health Diagnosis)', content: 'Project-specific instructions.' },
+        ],
       },
     ],
   },
@@ -344,7 +347,7 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
 3. **Node Execution Profiling**:
    - Use \`ros2 trace\` or \`tracetools\` to measure callback queue blockage in the single-threaded executor. Switch to \`MultiThreadedExecutor\` if necessary.`,
         timestamp: '2026-08-23T14:32:00.000Z',
-        references: ['Project Instructions (Autonomous Rover IoT Navigation)'],
+        references: [{ fileId: 'project-context-2', filename: 'Project Instructions (Autonomous Rover IoT Navigation)', content: 'Project-specific instructions.' }],
       },
     ],
   },
