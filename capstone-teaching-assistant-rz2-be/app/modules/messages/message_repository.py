@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -194,19 +194,37 @@ class MessageRepository:
 
     async def retrieve_chunks(
         self,
-        file_ids: list[UUID],
+        conversation_id: UUID,
+        prioritized_file_ids: list[UUID],
         query_embedding: list[float],
         limit: int,
     ) -> list[tuple[DocumentChunk, File]]:
+        conversation_file_exists = (
+            select(MessageFile.id)
+            .where(
+                MessageFile.conversation_id == conversation_id,
+                MessageFile.file_id == DocumentChunk.file_id,
+                MessageFile.deleted_at.is_(None),
+            )
+            .correlate(DocumentChunk)
+            .exists()
+        )
         query = (
             select(DocumentChunk, File)
             .join(File, File.id == DocumentChunk.file_id)
-            .where(DocumentChunk.file_id.in_(file_ids))
+            .where(conversation_file_exists)
             .where(DocumentChunk.deleted_at.is_(None))
             .where(File.processing_status == FileProcessingStatus.READY)
             .where(File.deleted_at.is_(None))
             .limit(limit)
         )
+        if prioritized_file_ids:
+            query = query.order_by(
+                case(
+                    (DocumentChunk.file_id.in_(prioritized_file_ids), 0),
+                    else_=1,
+                )
+            )
         bind = self.session.get_bind()
         if bind.dialect.name == "sqlite":
             query = query.order_by(DocumentChunk.chunk_index.asc())

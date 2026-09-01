@@ -152,14 +152,11 @@ class MessageService:
             self._validate_embedding(query_embedding)
             user_message.embedding = query_embedding
 
-            context_rows = (
-                await self.repository.retrieve_chunks(
-                    generation_context.file_ids,
-                    query_embedding,
-                    self.settings.rag_top_k,
-                )
-                if generation_context.file_ids
-                else []
+            context_rows = await self.repository.retrieve_chunks(
+                user_message.conversation_id,
+                generation_context.file_ids,
+                query_embedding,
+                self.settings.rag_top_k,
             )
             context = [
                 RetrievedChunkDTO(
