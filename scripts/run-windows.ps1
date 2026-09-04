@@ -30,11 +30,11 @@ function Require-Command {
         [string]$Name,
         [string]$InstallationUrl
     )
-    $Command = Get-Command $Name -ErrorAction SilentlyContinue
+    $Command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue
     if ($null -eq $Command) {
         throw "Required command '$Name' was not found. Install it from $InstallationUrl"
     }
-    return $Command.Source
+    return $Command.Path
 }
 
 function Assert-LastCommand {
