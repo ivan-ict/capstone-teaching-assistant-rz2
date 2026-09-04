@@ -67,7 +67,7 @@ On the first run, the script:
 2. Synchronizes backend and frontend dependencies.
 3. Starts PostgreSQL and RustFS and initializes the file bucket.
 4. Applies database migrations and seeds the local administrator account.
-5. Starts Ollama when necessary and downloads any missing chat, vision, and embedding models.
+5. Starts Ollama and downloads any missing chat, vision, and embedding models.
 6. Starts FastAPI and Vite, waits for both to become ready, and opens the web app.
 
 Model downloads can make the first run take several minutes. Later runs reuse installed
@@ -75,7 +75,8 @@ dependencies, models, containers, and persistent Docker volumes.
 
 Press `Ctrl+C` to stop the runner. It stops the frontend, backend, Ollama server, PostgreSQL,
 and RustFS only when those processes or services were started by that run. Docker volumes are
-preserved. Services that were already running before the command are left running.
+preserved. Services that were already running before the command are left running. On Windows,
+the runner first stops existing Ollama desktop and server processes to avoid a port conflict.
 
 ## Local URLs
 

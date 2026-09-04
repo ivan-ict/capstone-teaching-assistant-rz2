@@ -87,6 +87,37 @@ function Stop-ProcessTree {
     & taskkill.exe /PID $Process.Id /T /F *> $null
 }
 
+function Stop-ExistingOllamaProcesses {
+    $FoundProcess = $false
+
+    foreach ($ProcessName in @("ollama app", "ollama")) {
+        $Processes = @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)
+        foreach ($Process in $Processes) {
+            if (-not $FoundProcess) {
+                Write-Step "Stopping existing Ollama processes"
+                $FoundProcess = $true
+            }
+
+            try {
+                Stop-Process -Id $Process.Id -Force -ErrorAction Stop
+                if (-not $Process.WaitForExit(10000)) {
+                    throw "Ollama process $($Process.Id) did not stop within 10 seconds."
+                }
+            }
+            catch {
+                if ($null -ne (Get-Process -Id $Process.Id -ErrorAction SilentlyContinue)) {
+                    throw
+                }
+            }
+        }
+    }
+
+    $RemainingProcesses = @(Get-Process -Name "ollama app", "ollama" -ErrorAction SilentlyContinue)
+    if ($RemainingProcesses.Count -gt 0) {
+        throw "Existing Ollama processes could not be stopped."
+    }
+}
+
 try {
     Write-Step "Checking prerequisites"
     $DockerExe = Require-Command "docker" "https://docs.docker.com/get-docker/"
@@ -168,16 +199,13 @@ try {
         Pop-Location
     }
 
-    if (-not (Test-Url "$OllamaUrl/api/tags")) {
-        Write-Step "Starting Ollama"
-        $OllamaStdoutLog = [System.IO.Path]::GetTempFileName()
-        $OllamaStderrLog = [System.IO.Path]::GetTempFileName()
-        $OllamaProcess = Start-Process -FilePath $OllamaExe -ArgumentList "serve" -PassThru -WindowStyle Hidden -RedirectStandardOutput $OllamaStdoutLog -RedirectStandardError $OllamaStderrLog
-        Wait-ForUrl "Ollama" "$OllamaUrl/api/tags" $OllamaProcess
-    }
-    else {
-        Write-Step "Using the existing Ollama server"
-    }
+    Stop-ExistingOllamaProcesses
+
+    Write-Step "Starting Ollama"
+    $OllamaStdoutLog = [System.IO.Path]::GetTempFileName()
+    $OllamaStderrLog = [System.IO.Path]::GetTempFileName()
+    $OllamaProcess = Start-Process -FilePath $OllamaExe -ArgumentList "serve" -PassThru -WindowStyle Hidden -RedirectStandardOutput $OllamaStdoutLog -RedirectStandardError $OllamaStderrLog
+    Wait-ForUrl "Ollama" "$OllamaUrl/api/tags" $OllamaProcess
 
     foreach ($ModelName in @("qwen3.5:4b", "qwen3-vl:2b", "qwen3-embedding:0.6b")) {
         & $OllamaExe show $ModelName *> $null
