@@ -14,11 +14,10 @@ $StartupTimeoutSeconds = 120
 $BackendProcess = $null
 $FrontendProcess = $null
 $OllamaProcess = $null
-$OllamaStdoutLog = $null
-$OllamaStderrLog = $null
 $StartedDockerServices = @()
 $ExitCode = 0
 $DockerExe = $null
+$CurlExe = $null
 
 function Write-Step {
     param([string]$Message)
@@ -46,13 +45,8 @@ function Assert-LastCommand {
 
 function Test-Url {
     param([string]$Url)
-    try {
-        Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 | Out-Null
-        return $true
-    }
-    catch {
-        return $false
-    }
+    & $CurlExe --fail --silent --max-time 2 --noproxy "*" $Url *> $null
+    return $LASTEXITCODE -eq 0
 }
 
 function Wait-ForUrl {
@@ -121,6 +115,7 @@ function Stop-ExistingOllamaProcesses {
 try {
     Write-Step "Checking prerequisites"
     $DockerExe = Require-Command "docker" "https://docs.docker.com/get-docker/"
+    $CurlExe = Require-Command "curl" "https://curl.se/windows/"
     $UvExe = Require-Command "uv" "https://docs.astral.sh/uv/getting-started/installation/"
     Require-Command "node" "https://nodejs.org/" | Out-Null
     $NpmCommand = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
@@ -202,9 +197,7 @@ try {
     Stop-ExistingOllamaProcesses
 
     Write-Step "Starting Ollama"
-    $OllamaStdoutLog = [System.IO.Path]::GetTempFileName()
-    $OllamaStderrLog = [System.IO.Path]::GetTempFileName()
-    $OllamaProcess = Start-Process -FilePath $OllamaExe -ArgumentList "serve" -PassThru -WindowStyle Hidden -RedirectStandardOutput $OllamaStdoutLog -RedirectStandardError $OllamaStderrLog
+    $OllamaProcess = Start-Process -FilePath $OllamaExe -ArgumentList "serve" -PassThru -NoNewWindow
     Wait-ForUrl "Ollama" "$OllamaUrl/api/tags" $OllamaProcess
 
     foreach ($ModelName in @("qwen3.5:4b", "qwen3-vl:2b", "qwen3-embedding:0.6b")) {
@@ -259,12 +252,6 @@ finally {
         Write-Step "Stopping Docker services started by this run: $($StartedDockerServices -join ', ')"
         $DockerArguments = @("compose", "-f", $ComposeFile, "stop") + $StartedDockerServices
         & $DockerExe @DockerArguments
-    }
-
-    foreach ($LogFile in @($OllamaStdoutLog, $OllamaStderrLog)) {
-        if ($null -ne $LogFile -and (Test-Path $LogFile)) {
-            Remove-Item $LogFile -Force
-        }
     }
 }
 
