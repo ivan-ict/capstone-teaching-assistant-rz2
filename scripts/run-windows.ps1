@@ -30,7 +30,7 @@ function Require-Command {
         [string]$Name,
         [string]$InstallationUrl
     )
-    $Command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue
+    $Command = Get-Command "$Name.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $Command) {
         throw "Required command '$Name' was not found. Install it from $InstallationUrl"
     }
