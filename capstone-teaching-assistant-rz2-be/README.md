@@ -59,10 +59,27 @@ Service -> Service
 
 ## Local Setup
 
+### Prerequisites
+
+Install these system tools before running the project:
+
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- [Node.js](https://nodejs.org/) with npm
+- [Ollama](https://ollama.com/download)
+
+Docker must be running. The startup script installs project dependencies and Ollama models,
+but it does not install these system-level prerequisites.
+
 Install uv if needed:
+#### For MacOS:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+#### For Windows (PowerShell)
+```bash
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 From this backend folder:
@@ -93,7 +110,7 @@ uv run python tools/seed_local_admin.py
 Start Ollama and pull the local MVP models:
 
 ```bash
-ollama pull qwen3
+ollama pull qwen3.5:4b
 ollama pull qwen3-vl:2b
 ollama pull qwen3-embedding:0.6b
 ```
@@ -123,7 +140,7 @@ DATABASE_URL=postgresql+psycopg://capstone:capstone@localhost:5432/capstone
 RUSTFS_ENDPOINT_URL=http://localhost:9000
 RUSTFS_BUCKET_NAME=capstone-files
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=qwen3
+OLLAMA_CHAT_MODEL=qwen3.5:4b
 OLLAMA_CHAT_TEMPERATURE=0.2
 OLLAMA_VISION_MODEL=qwen3-vl:2b
 OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
