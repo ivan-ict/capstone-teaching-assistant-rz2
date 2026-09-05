@@ -200,9 +200,12 @@ try {
     $OllamaProcess = Start-Process -FilePath $OllamaExe -ArgumentList "serve" -PassThru -NoNewWindow
     Wait-ForUrl "Ollama" "$OllamaUrl/api/tags" $OllamaProcess
 
+    $InstalledModelNames = @(
+        (Invoke-RestMethod -Uri "$OllamaUrl/api/tags" -Method Get).models |
+            ForEach-Object { $_.name }
+    )
     foreach ($ModelName in @("qwen3.5:4b", "qwen3-vl:2b", "qwen3-embedding:0.6b")) {
-        & $OllamaExe show $ModelName *> $null
-        if ($LASTEXITCODE -eq 0) {
+        if ($InstalledModelNames -contains $ModelName) {
             Write-Step "Ollama model is already available: $ModelName"
         }
         else {
