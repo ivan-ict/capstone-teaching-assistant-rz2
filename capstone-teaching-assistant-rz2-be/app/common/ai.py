@@ -101,9 +101,10 @@ class OllamaChatProvider:
     ) -> AsyncIterator[str]:
         messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
         for role, content in chat_history:
+            role = role.upper()
             if role == "USER":
                 messages.append(HumanMessage(content=content))
-            else:
+            elif role == "ASSISTANT":
                 messages.append(AIMessage(content=content))
         messages.append(HumanMessage(content=user_prompt))
 

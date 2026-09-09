@@ -179,7 +179,7 @@ export const FacultyManagement: React.FC = () => {
                         </span>
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 font-medium border border-amber-200/60 dark:border-amber-800/60 text-xs">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                          <span>{f.suspendedSupervisorsCount} Suspended</span>
+                          <span>{f.suspendedSupervisorsCount} Deactivated</span>
                         </span>
                       </div>
                     </td>
@@ -202,7 +202,7 @@ export const FacultyManagement: React.FC = () => {
                             id={`delete-faculty-btn-${f.id}`}
                             disabled
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/50 text-slate-400 dark:text-slate-600 text-xs font-semibold border border-slate-200/80 dark:border-slate-800 cursor-not-allowed opacity-60"
-                            title={`Cannot delete faculty: ${f.totalSupervisorsCount} supervisor${f.totalSupervisorsCount > 1 ? 's' : ''} assigned (${f.activeSupervisorsCount} active${f.suspendedSupervisorsCount > 0 ? `, ${f.suspendedSupervisorsCount} suspended` : ''}).`}
+                            title={`Cannot delete faculty: ${f.totalSupervisorsCount} supervisor${f.totalSupervisorsCount > 1 ? 's' : ''} assigned (${f.activeSupervisorsCount} active${f.suspendedSupervisorsCount > 0 ? `, ${f.suspendedSupervisorsCount} deactivated` : ''}).`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Delete</span>

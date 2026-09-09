@@ -1,11 +1,13 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.common.db_models import (
     Conversation,
@@ -26,6 +28,9 @@ class MessageGenerationContext:
     user_message: Message | None
     project_instructions: str | None
     file_ids: list[UUID]
+    supervisor_id: UUID
+    project_id: UUID | None
+    prepared_at: datetime
 
 
 class MessageRepository:
@@ -102,10 +107,17 @@ class MessageRepository:
             .scalar_subquery()
         )
         query = (
-            select(Message, previous_user, Project.instructions, MessageFile.file_id)
+            select(Message, previous_user, Project.instructions, MessageFile.file_id, Project.id)
             .join(Conversation, Conversation.id == Message.conversation_id)
             .outerjoin(previous_user, previous_user.id == previous_user_id)
-            .outerjoin(Project, Project.id == Conversation.project_id)
+            .outerjoin(
+                Project,
+                and_(
+                    Project.id == Conversation.project_id,
+                    Project.supervisor_id == supervisor_id,
+                    Project.deleted_at.is_(None),
+                ),
+            )
             .outerjoin(
                 MessageFile,
                 and_(
@@ -128,6 +140,9 @@ class MessageRepository:
             user_message=rows[0][1],
             project_instructions=rows[0][2],
             file_ids=list(dict.fromkeys(row[3] for row in rows if row[3] is not None)),
+            supervisor_id=supervisor_id,
+            project_id=rows[0][4],
+            prepared_at=datetime.now(UTC),
         )
 
     async def list_files_by_ids_for_supervisor(
@@ -192,17 +207,28 @@ class MessageRepository:
         messages.reverse()
         return messages
 
+    def _conversation_scope(self, context: MessageGenerationContext) -> ColumnElement[bool]:
+        membership = Conversation.id == context.assistant_message.conversation_id
+        if context.project_id is not None:
+            membership = or_(membership, Conversation.project_id == context.project_id)
+        return and_(
+            membership,
+            Conversation.supervisor_id == context.supervisor_id,
+            Conversation.deleted_at.is_(None),
+        )
+
     async def retrieve_chunks(
         self,
-        conversation_id: UUID,
+        context: MessageGenerationContext,
         prioritized_file_ids: list[UUID],
         query_embedding: list[float],
         limit: int,
     ) -> list[tuple[DocumentChunk, File]]:
         conversation_file_exists = (
             select(MessageFile.id)
+            .join(Conversation, Conversation.id == MessageFile.conversation_id)
             .where(
-                MessageFile.conversation_id == conversation_id,
+                self._conversation_scope(context),
                 MessageFile.file_id == DocumentChunk.file_id,
                 MessageFile.deleted_at.is_(None),
             )
@@ -216,6 +242,7 @@ class MessageRepository:
             .where(DocumentChunk.deleted_at.is_(None))
             .where(File.processing_status == FileProcessingStatus.READY)
             .where(File.deleted_at.is_(None))
+            .where(File.supervisor_id == context.supervisor_id)
             .limit(limit)
         )
         if prioritized_file_ids:
@@ -235,7 +262,7 @@ class MessageRepository:
 
     async def retrieve_messages(
         self,
-        conversation_id: UUID,
+        context: MessageGenerationContext,
         before_sequence_no: int,
         query_embedding: list[float],
         limit: int,
@@ -243,8 +270,20 @@ class MessageRepository:
     ) -> list[Message]:
         query = (
             select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .where(Message.sequence_no < before_sequence_no)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(self._conversation_scope(context))
+            .where(
+                or_(
+                    and_(
+                        Message.conversation_id == context.assistant_message.conversation_id,
+                        Message.sequence_no < before_sequence_no,
+                    ),
+                    and_(
+                        Message.conversation_id != context.assistant_message.conversation_id,
+                        Message.created_at <= context.prepared_at,
+                    ),
+                )
+            )
             .where(Message.status == MessageStatus.COMPLETED)
             .where(Message.content != "")
             .where(Message.embedding.is_not(None))

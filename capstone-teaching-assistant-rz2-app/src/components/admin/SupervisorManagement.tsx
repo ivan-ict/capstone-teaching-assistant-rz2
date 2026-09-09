@@ -277,7 +277,7 @@ export const SupervisorManagement: React.FC = () => {
           }`}
         >
           <UserX className="w-4 h-4" />
-          <span>Suspended Supervisors</span>
+          <span>Deactivated Supervisors</span>
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
             {suspendedCount}
           </span>
@@ -747,7 +747,7 @@ export const SupervisorManagement: React.FC = () => {
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200 dark:border-rose-800 transition cursor-pointer"
                             >
                               <UserX className="w-3.5 h-3.5" />
-                              <span>Suspend</span>
+                              <span>Deactivate</span>
                             </button>
                           ) : (
                             /* Suspended Supervisor Action: Activate */
@@ -812,9 +812,9 @@ export const SupervisorManagement: React.FC = () => {
             </div>
             
             <div className="text-center space-y-1">
-              <h3 className="font-bold text-base text-slate-900 dark:text-white">Suspend Supervisor</h3>
+              <h3 className="font-bold text-base text-slate-900 dark:text-white">Deactivate Supervisor</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Are you sure you want to suspend <span className="font-semibold text-slate-800 dark:text-slate-200">"{confirmSuspendUser.fullName}"</span> (@{confirmSuspendUser.username})? They will be unable to log in until reactivated.
+                Are you sure you want to deactivate <span className="font-semibold text-slate-800 dark:text-slate-200">"{confirmSuspendUser.fullName}"</span> (@{confirmSuspendUser.username})? They will be unable to log in until reactivated.
               </p>
             </div>
 
@@ -834,7 +834,7 @@ export const SupervisorManagement: React.FC = () => {
                 }}
                 className="flex-1 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
               >
-                Suspend
+                Deactivate
               </button>
             </div>
           </div>

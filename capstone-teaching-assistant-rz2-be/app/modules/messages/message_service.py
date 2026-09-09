@@ -153,7 +153,7 @@ class MessageService:
             user_message.embedding = query_embedding
 
             context_rows = await self.repository.retrieve_chunks(
-                user_message.conversation_id,
+                generation_context,
                 generation_context.file_ids,
                 query_embedding,
                 self.settings.rag_top_k,
@@ -168,7 +168,7 @@ class MessageService:
                 for chunk, file in context_rows
             ]
             relevant_messages = await self.repository.retrieve_messages(
-                user_message.conversation_id,
+                generation_context,
                 user_message.sequence_no,
                 query_embedding,
                 self.settings.rag_top_k,
@@ -187,6 +187,23 @@ class MessageService:
             source_payloads = self._source_payloads(context)
             await self.session.commit()
 
+            print(
+                json.dumps(
+                    {
+                        "event": "chat_project_context",
+                        "conversation_id": str(user_message.conversation_id),
+                        "assistant_message_id": str(assistant_message.id),
+                        "project_id": (
+                            str(generation_context.project_id)
+                            if generation_context.project_id is not None
+                            else None
+                        ),
+                        "project_instructions": generation_context.project_instructions,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
             async for token in self.chat.stream_answer(
                 system_prompt,
                 chat_history,
@@ -325,7 +342,7 @@ class MessageService:
                     "three hyphens in every delimiter cell, for example | :--- | :--- |."
                 ),
                 f"Current UTC date and time: {current_time}",
-                f"Follow these project instructions when responding:\n{instructions}",
+                f"*IMPORTANT* MUST follow these project instructions when responding:\n{instructions}",
                 f"Relevant prior messages:\n{message_context}",
                 f"Retrieved context:\n{context_text}",
             ]
@@ -335,7 +352,8 @@ class MessageService:
         if not messages:
             return "No semantically relevant prior messages were found."
         return "\n\n".join(
-            f"[{message.role.value} #{message.sequence_no}]\n{message.content}"
+            f"[Conversation {message.conversation_id}, "
+            f"{message.role.value} #{message.sequence_no}]\n{message.content}"
             for message in messages
         )
 

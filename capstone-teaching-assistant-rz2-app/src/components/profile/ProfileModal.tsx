@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Mail, 
-  Phone, 
   Calendar, 
   Shield, 
   Building2, 
@@ -240,19 +239,8 @@ export const ProfileModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Phone */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
-                  <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 tracking-wider">
-                    <Phone className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Phone Number</span>
-                  </div>
-                  <div className="text-slate-800 dark:text-slate-200 font-mono">
-                    {currentUser.phone || 'Not specified'}
-                  </div>
-                </div>
-
                 {/* Teaching Term */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5 sm:col-span-2">
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
                   <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 tracking-wider">
                     <Calendar className="w-3.5 h-3.5 text-purple-500" />
                     <span>Academic Allocation</span>

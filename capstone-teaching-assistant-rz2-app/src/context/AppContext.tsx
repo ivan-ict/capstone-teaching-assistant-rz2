@@ -360,7 +360,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await api.updateSupervisorStatus(id, 'INACTIVE');
       await refreshAdminData();
     } catch (error) {
-      showError(error, 'Could not suspend supervisor.');
+      showError(error, 'Could not deactivate supervisor.');
     }
   };
 
