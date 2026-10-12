@@ -75,7 +75,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ file, onClos
           ) : isImage && file.dataUrl ? (
             <img src={file.dataUrl} alt={file.name} className="mx-auto max-h-[70vh] max-w-full rounded-xl object-contain" />
           ) : isPdf && file.dataUrl ? (
-            <iframe src={file.dataUrl} title={file.name} className="h-[70vh] w-full rounded-xl bg-white" />
+            <iframe src={file.dataUrl} title={file.name} className="h-[70vh] w-full rounded-xl bg-white dark:bg-slate-900" />
           ) : isMarkdown && textContent !== null ? (
             <article className="prose mx-auto max-w-3xl overflow-x-auto dark:prose-invert"><ReactMarkdown remarkPlugins={[remarkGfm, remarkHtmlBreaks]}>{textContent}</ReactMarkdown></article>
           ) : isText && textContent !== null ? (

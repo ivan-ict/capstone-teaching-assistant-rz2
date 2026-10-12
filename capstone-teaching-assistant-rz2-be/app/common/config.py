@@ -22,15 +22,28 @@ class Settings(BaseSettings):
     ollama_chat_num_predict: int | None = Field(default=None, gt=0)
     ollama_chat_num_ctx: int | None = Field(default=None, gt=0)
     ollama_chat_reasoning: bool | None = None
+    # Chat-only override; falls back to ollama_keep_alive when unset.
     ollama_chat_keep_alive: int | str | None = None
+    # How long Ollama keeps every model loaded after use (-1 = forever).
+    ollama_keep_alive: int | str = -1
+    # Load the chat, vision and embedding models when the API starts.
+    ollama_preload_models: bool = True
     ollama_chat_num_thread: int | None = Field(default=None, gt=0)
     ollama_chat_num_gpu: int | None = Field(default=None, ge=0)
     ollama_vision_model: str = "qwen3-vl:2b"
+    # Large images use most of Ollama's default 4096-token context, leaving the
+    # model no room to answer; give the vision model a bigger window.
+    ollama_vision_num_ctx: int = Field(default=16384, gt=0)
+    ollama_vision_num_predict: int | None = Field(default=8192, gt=0)
+    # Images are downscaled to this longest side before being described.
+    image_max_dimension: int = Field(default=1600, gt=0)
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
     embedding_dimension: int = Field(default=1024, gt=0)
-    rag_top_k: int = Field(default=5, gt=0)
-    chunk_size: int = Field(default=1200, gt=0)
-    chunk_overlap: int = Field(default=200, ge=0)
+    rag_top_k: int = Field(default=8, gt=0)
+    # Max cosine distance for a retrieved chunk to be shown as a reference.
+    rag_source_max_distance: float = Field(default=0.5, ge=0, le=2)
+    chunk_size: int = Field(default=2000, gt=0)
+    chunk_overlap: int = Field(default=300, ge=0)
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     jwt_secret_key: str = DEFAULT_JWT_SECRET_KEY
     jwt_algorithm: Literal["HS256"] = "HS256"
@@ -65,6 +78,21 @@ class Settings(BaseSettings):
     def strip_app_password_spaces(cls, value: str) -> str:
         # Google displays app passwords in groups of four separated by spaces.
         return "".join(value.split())
+
+    @field_validator("ollama_keep_alive", "ollama_chat_keep_alive", mode="before")
+    @classmethod
+    def parse_keep_alive(cls, value: object) -> object:
+        # Env values are strings; Ollama treats a JSON string as a duration that
+        # needs a unit, so "-1" must be sent as the number -1.
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                return int(text)
+            except ValueError:
+                return text
+        return value
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> Settings:

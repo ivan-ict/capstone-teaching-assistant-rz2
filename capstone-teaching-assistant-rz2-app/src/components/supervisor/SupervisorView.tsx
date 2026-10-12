@@ -11,7 +11,7 @@ export const SupervisorView: React.FC = () => {
       key={`${semester?.id}:${semester?.deleted_at}`}
       className="flex-1 flex flex-col min-h-0 bg-slate-50 dark:bg-slate-950"
     >
-      <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 text-sm">
+      <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm text-slate-800 dark:text-slate-200">
         <strong>{semester?.name || 'No semester assigned'}</strong>
         {semester?.deleted_at ? (
           <p role="status" className="text-amber-700 dark:text-amber-400">
@@ -19,7 +19,7 @@ export const SupervisorView: React.FC = () => {
           </p>
         ) : (
           semester?.ready_file_count === 0 && (
-            <p role="status" className="text-slate-500">
+            <p role="status" className="text-slate-500 dark:text-slate-400">
               Semester documents are unavailable. Chat can use your conversation
               history and general knowledge.
             </p>

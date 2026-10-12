@@ -85,7 +85,11 @@ class SemesterRepository:
         total = await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         items = list(
             await self.session.scalars(
-                query.order_by(Semester.year.desc(), Semester.start_date.desc(), Semester.id)
+                query.order_by(
+                    Semester.year.desc(),
+                    Semester.start_date.desc().nulls_last(),
+                    Semester.id,
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )

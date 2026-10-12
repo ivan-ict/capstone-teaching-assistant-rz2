@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -189,6 +189,7 @@ dependencies = [
     { name = "langchain" },
     { name = "langchain-ollama" },
     { name = "pgvector" },
+    { name = "pillow" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic" },
@@ -220,6 +221,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=0.3.0" },
     { name = "langchain-ollama", specifier = ">=1.1.0" },
     { name = "pgvector", specifier = ">=0.4.0" },
+    { name = "pillow", specifier = ">=12.0.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.0" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3.1" },
     { name = "pydantic", specifier = ">=2.11.0" },

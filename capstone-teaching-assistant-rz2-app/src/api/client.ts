@@ -99,6 +99,7 @@ interface ConversationMessageDTO {
   sources?: {
     file_id: string;
     original_filename: string;
+    mime_type?: string | null;
     content: string;
   }[];
   created_at: string;
@@ -564,6 +565,7 @@ function mapMessage(dto: ConversationMessageDTO): Message {
     references: dto.sources?.map(source => ({
       fileId: source.file_id,
       filename: source.original_filename,
+      mimeType: source.mime_type ?? undefined,
       content: source.content,
     })),
   };

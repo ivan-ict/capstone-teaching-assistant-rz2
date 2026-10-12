@@ -136,9 +136,11 @@ class MessageService:
                     chunk_id=chunk.id,
                     file_id=file.id,
                     original_filename=file.original_filename,
+                    mime_type=file.mime_type,
                     content=chunk.content,
+                    distance=distance,
                 )
-                for chunk, file in context_rows
+                for chunk, file, distance in context_rows
             ]
             relevant_messages = await self.repository.retrieve_messages(
                 generation_context,
@@ -257,14 +259,19 @@ class MessageService:
         return generation_context
 
     def _source_payloads(self, sources: list[RetrievedChunkDTO]) -> list[dict[str, object]]:
+        # All retrieved chunks still go into the prompt, but only the ones close
+        # enough to the question are shown to the user as references.
+        max_distance = self.settings.rag_source_max_distance
         return [
             {
                 "chunk_id": str(source.chunk_id),
                 "file_id": str(source.file_id),
                 "original_filename": source.original_filename,
+                "mime_type": source.mime_type,
                 "content": source.content,
             }
             for source in sources
+            if source.distance is None or source.distance <= max_distance
         ]
 
     async def _get_assistant_message(self, supervisor_id: UUID, message_id: UUID) -> Message:

@@ -112,3 +112,31 @@ it('does not offer file uploads or assignments for archived semesters', async ()
   expect(screen.queryByLabelText('Upload semester files')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Archive 2026 S1' })).toBeNull();
 });
+it('shows per-file progress and refreshes the list after each upload', async () => {
+  app.api.uploadSemesterFile.mockImplementation((_id: string, file: File) =>
+    file.name === 'bad.txt'
+      ? Promise.reject(new Error('Uploaded files must contain extractable text.'))
+      : Promise.resolve({})
+  );
+  render(<SemesterManagement />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Manage files for 2026 S1' })
+  );
+  await waitFor(() => expect(app.api.semesterFiles).toHaveBeenCalledTimes(1));
+  fireEvent.change(screen.getByLabelText('Upload semester files'), {
+    target: {
+      files: [
+        new File(['ok'], 'good.md', { type: 'text/markdown' }),
+        new File([''], 'bad.txt', { type: 'text/plain' })
+      ]
+    }
+  });
+  expect(await screen.findByText('Done: 1 uploaded, 1 failed')).toBeTruthy();
+  expect(
+    screen.getAllByText('Uploaded files must contain extractable text.').length
+  ).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+  await waitFor(() =>
+    expect(app.api.semesterFiles.mock.calls.length).toBeGreaterThanOrEqual(2)
+  );
+});

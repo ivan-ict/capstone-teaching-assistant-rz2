@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.common.ai import (
     EmbeddingProvider,
     ImageDescriptionProvider,
+    ImageDescriptionTruncatedError,
     OllamaEmbeddingProvider,
     OllamaImageDescriptionProvider,
 )
@@ -184,6 +185,8 @@ class FileService:
             file = await self.repository.set_processing_result(file, FileProcessingStatus.READY)
             await self.session.commit()
         except Exception as exc:
+            if isinstance(exc, ImageDescriptionTruncatedError):
+                processing_error = str(exc)
             logger.exception("File processing failed during upload stage: %s", processing_error)
             file = await self._mark_processing_failed(
                 file_id,

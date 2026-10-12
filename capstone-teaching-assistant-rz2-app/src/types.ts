@@ -56,6 +56,7 @@ export interface Message {
 export interface MessageReference {
   fileId: string;
   filename: string;
+  mimeType?: string;
   content: string;
 }
 
@@ -72,8 +73,8 @@ export interface Semester {
   id: string;
   name: string;
   year: number;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   deleted_at: string | null;
   created_at?: string;
   updated_at?: string;

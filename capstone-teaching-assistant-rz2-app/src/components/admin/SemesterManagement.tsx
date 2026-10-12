@@ -1,103 +1,30 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Calendar,
-  Plus,
-  X,
-  Files,
-  Users,
-  Pencil,
   Archive,
-  Download,
-  Trash2,
-  Eye
+  Calendar,
+  Files,
+  Pencil,
+  Plus,
+  Search,
+  Users
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import {
-  AttachedFile,
-  Page,
-  Semester,
-  SemesterInput,
-  SemesterSupervisor
-} from '../../types';
-import { formatBytes } from '../../utils/formatters';
-import { SUPPORTED_UPLOAD_ACCEPT } from '../../constants/files';
+import { Page, Semester, SemesterInput } from '../../types';
+import { Modal } from '../common/ui/Modal';
+import { Button } from '../common/ui/Button';
+import { Badge } from '../common/ui/Badge';
+import { Card, PageHeader, SearchInput } from '../common/ui/Card';
+import { ConfirmDialog } from '../common/ui/ConfirmDialog';
+import { Pagination } from '../common/ui/Pagination';
+import { SemesterFiles } from './SemesterFiles';
+import { SemesterSupervisors } from './SemesterSupervisors';
+import { errorMessage, inputClass, labelClass, thClass } from './semesterShared';
 
-const inputClass =
-  'w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm';
-const buttonClass =
-  'px-3 py-2 rounded-xl text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40';
-const primaryClass =
-  'px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40';
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'The operation failed.';
-
-function Dialog({
-  title,
-  close,
-  children
-}: {
-  title: string;
-  close: () => void;
-  children: React.ReactNode;
-}) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [close]);
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800"
-      >
-        <header className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="font-bold">{title}</h2>
-          <button aria-label="Close dialog" onClick={close}>
-            <X size={20} />
-          </button>
-        </header>
-        <div className="p-5 space-y-4">{children}</div>
-      </section>
-    </div>
-  );
-}
-
-function Pagination({
-  page,
-  total,
-  change
-}: {
-  page: number;
-  total: number;
-  change: (page: number) => void;
-}) {
-  return (
-    <div className="flex items-center justify-end gap-3 text-xs">
-      <span>
-        {total} total · Page {page} of {Math.max(1, Math.ceil(total / 20))}
-      </span>
-      <button
-        className={buttonClass}
-        disabled={page <= 1}
-        onClick={() => change(page - 1)}
-      >
-        Previous
-      </button>
-      <button
-        className={buttonClass}
-        disabled={page * 20 >= total}
-        onClick={() => change(page + 1)}
-      >
-        Next
-      </button>
-    </div>
-  );
-}
+const formatPeriod = (semester: Semester) => {
+  const { start_date: start, end_date: end } = semester;
+  if (!start && !end) return '—';
+  return `${start || '…'} – ${end || '…'}`;
+};
 
 function SemesterForm({
   semester,
@@ -110,21 +37,42 @@ function SemesterForm({
 }) {
   const { api } = useApp();
   const [values, setValues] = useState<SemesterInput>(
-    semester || {
-      name: '',
-      year: new Date().getFullYear(),
-      start_date: '',
-      end_date: ''
-    }
+    semester
+      ? {
+          name: semester.name,
+          year: semester.year,
+          start_date: semester.start_date,
+          end_date: semester.end_date
+        }
+      : {
+          name: '',
+          year: new Date().getFullYear(),
+          start_date: null,
+          end_date: null
+        }
   );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const formId = 'semester-form';
+
   return (
-    <Dialog
+    <Modal
       title={semester ? 'Edit semester' : 'Create semester'}
-      close={close}
+      icon={<Calendar className="w-4 h-4" />}
+      onClose={close}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form={formId} disabled={busy}>
+            {busy ? 'Saving…' : 'Save semester'}
+          </Button>
+        </>
+      }
     >
       <form
+        id={formId}
         className="space-y-4"
         onSubmit={async (event) => {
           event.preventDefault();
@@ -135,8 +83,8 @@ function SemesterForm({
               {
                 name: values.name.trim(),
                 year: Number(values.year),
-                start_date: values.start_date,
-                end_date: values.end_date
+                start_date: values.start_date || null,
+                end_date: values.end_date || null
               },
               semester?.id
             );
@@ -150,12 +98,15 @@ function SemesterForm({
         }}
       >
         {error && (
-          <p role="alert" className="text-rose-600 text-sm">
+          <p
+            role="alert"
+            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300"
+          >
             {error}
           </p>
         )}
-        <label className="block text-sm">
-          Name *
+        <label className="block">
+          <span className={labelClass}>Name *</span>
           <input
             autoFocus
             required
@@ -165,8 +116,8 @@ function SemesterForm({
             onChange={(e) => setValues({ ...values, name: e.target.value })}
           />
         </label>
-        <label className="block text-sm">
-          Year *
+        <label className="block">
+          <span className={labelClass}>Year *</span>
           <input
             required
             type="number"
@@ -180,435 +131,43 @@ function SemesterForm({
           />
         </label>
         <div className="grid grid-cols-2 gap-4">
-          <label className="text-sm">
-            Start date *
+          <label className="block">
+            <span className={labelClass}>Start date</span>
             <input
-              required
               type="date"
               className={inputClass}
-              value={values.start_date}
+              value={values.start_date ?? ''}
               onChange={(e) =>
-                setValues({ ...values, start_date: e.target.value })
+                setValues({ ...values, start_date: e.target.value || null })
               }
             />
           </label>
-          <label className="text-sm">
-            End date *
+          <label className="block">
+            <span className={labelClass}>End date</span>
             <input
-              required
               type="date"
-              min={values.start_date}
+              min={values.start_date || undefined}
               className={inputClass}
-              value={values.end_date}
+              value={values.end_date ?? ''}
               onChange={(e) =>
-                setValues({ ...values, end_date: e.target.value })
+                setValues({ ...values, end_date: e.target.value || null })
               }
             />
           </label>
         </div>
-        <p className="text-xs text-slate-500">
-          Dates describe the academic period. Archive the semester to make chat
-          read-only.
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Dates are optional and describe the academic period. Archive the
+          semester to make chat read-only.
         </p>
-        <div className="flex justify-end gap-2">
-          <button type="button" className={buttonClass} onClick={close}>
-            Cancel
-          </button>
-          <button className={primaryClass} disabled={busy}>
-            {busy ? 'Saving…' : 'Save semester'}
-          </button>
-        </div>
       </form>
-    </Dialog>
+    </Modal>
   );
 }
 
-function SemesterFiles({
-  semester,
-  close,
-  changed
-}: {
-  semester: Semester;
-  close: () => void;
-  changed: () => Promise<void>;
-}) {
-  const { api, downloadFile, previewFile } = useApp();
-  const [data, setData] = useState<Page<AttachedFile>>({
-    items: [],
-    total: 0,
-    page: 1,
-    page_size: 20
-  });
-  const [page, setPage] = useState(1);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [revision, setRevision] = useState(0);
-  const [removing, setRemoving] = useState<AttachedFile | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .semesterFiles(semester.id, page)
-      .then((data) => {
-        if (!cancelled) setData(data);
-      })
-      .catch((error) => {
-        if (!cancelled) setError(errorMessage(error));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, semester.id, page, revision]);
-  const upload = async (files: File[]) => {
-    setBusy(true);
-    setError('');
-    const failures: string[] = [];
-    try {
-      for (const file of files) {
-        try {
-          await api.uploadSemesterFile(semester.id, file);
-        } catch (error) {
-          failures.push(`${file.name}: ${errorMessage(error)}`);
-        }
-      }
-      setPage(1);
-      setRevision((v) => v + 1);
-      await changed();
-    } catch (error) {
-      failures.push(errorMessage(error));
-    } finally {
-      setError(failures.join('\n'));
-      setBusy(false);
-    }
-  };
-  return (
-    <Dialog title={`Files · ${semester.name}`} close={close}>
-      {semester.deleted_at ? (
-        <p className="text-sm text-amber-600">
-          Archived semester. Files are read-only.
-        </p>
-      ) : (
-        <label className="block text-sm">
-          Upload files
-          <input
-            aria-label="Upload semester files"
-            type="file"
-            multiple
-            accept={SUPPORTED_UPLOAD_ACCEPT}
-            disabled={busy}
-            className="block mt-2 text-sm"
-            onChange={(event) => {
-              const files = Array.from(event.target.files || []);
-              event.target.value = '';
-              if (files.length) void upload(files);
-            }}
-          />
-        </label>
-      )}
-      {busy && (
-        <p role="status" className="text-sm">
-          Processing files…
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-rose-600 whitespace-pre-wrap">
-          {error}
-        </p>
-      )}
-      {loading ? (
-        <p>Loading files…</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="text-slate-500">
-              <tr>
-                <th className="p-2">File</th>
-                <th>Size</th>
-                <th>Status</th>
-                <th>Uploaded</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((file) => (
-                <tr
-                  key={file.id}
-                  className="border-t border-slate-100 dark:border-slate-800"
-                >
-                  <td className="p-2 max-w-56 break-words">
-                    {file.name}
-                    {file.processingError && (
-                      <p className="text-rose-600">{file.processingError}</p>
-                    )}
-                  </td>
-                  <td>{formatBytes(file.size)}</td>
-                  <td>{file.processingStatus}</td>
-                  <td>{new Date(file.uploadedAt).toLocaleDateString()}</td>
-                  <td>
-                    <div className="flex gap-2 p-2">
-                      <button
-                        aria-label={`Preview ${file.name}`}
-                        onClick={() => previewFile(file)}
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button
-                        aria-label={`Download ${file.name}`}
-                        onClick={() => void downloadFile(file)}
-                      >
-                        <Download size={16} />
-                      </button>
-                      {!semester.deleted_at && (
-                        <button
-                          disabled={busy}
-                          aria-label={`Remove ${file.name}`}
-                          onClick={() => setRemoving(file)}
-                        >
-                          <Trash2 size={16} className="text-rose-600" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!data.items.length && (
-            <p className="py-6 text-center text-sm text-slate-500">
-              No files uploaded.
-            </p>
-          )}
-        </div>
-      )}
-      {removing && (
-        <div className="rounded-xl border border-rose-200 p-3 text-sm">
-          <p>
-            Remove “{removing.name}” from future chat answers? Existing answers
-            and source excerpts will remain.
-          </p>
-          <div className="flex justify-end">
-            <button className={buttonClass} onClick={() => setRemoving(null)}>
-              Cancel
-            </button>
-            <button
-              className={buttonClass}
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                setError('');
-                try {
-                  await api.deleteSemesterFile(semester.id, removing.id);
-                  setRemoving(null);
-                  setPage(1);
-                  setRevision((v) => v + 1);
-                  await changed();
-                } catch (error) {
-                  setError(errorMessage(error));
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Remove file
-            </button>
-          </div>
-        </div>
-      )}
-      <Pagination page={page} total={data.total} change={setPage} />
-    </Dialog>
-  );
-}
-
-function SemesterSupervisors({
-  semester,
-  close,
-  changed
-}: {
-  semester: Semester;
-  close: () => void;
-  changed: () => Promise<void>;
-}) {
-  const { api } = useApp();
-  const [candidates, setCandidates] = useState(false);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState<Page<SemesterSupervisor>>({
-    items: [],
-    total: 0,
-    page: 1,
-    page_size: 20
-  });
-  const [selected, setSelected] = useState<string[]>([]);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .semesterSupervisors(semester.id, candidates, search, page)
-      .then((data) => {
-        if (!cancelled) setData(data);
-      })
-      .catch((error) => {
-        if (!cancelled) setError(errorMessage(error));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, semester.id, candidates, search, page, revision]);
-  return (
-    <Dialog title={`Supervisors · ${semester.name}`} close={close}>
-      <div className="flex gap-2">
-        <button
-          className={buttonClass}
-          aria-pressed={!candidates}
-          onClick={() => {
-            setCandidates(false);
-            setPage(1);
-            setSelected([]);
-          }}
-        >
-          Current supervisors
-        </button>
-        {!semester.deleted_at && (
-          <button
-            className={buttonClass}
-            aria-pressed={candidates}
-            onClick={() => {
-              setCandidates(true);
-              setPage(1);
-            }}
-          >
-            Add supervisors
-          </button>
-        )}
-      </div>
-      {candidates && (
-        <p className="text-sm text-slate-500">
-          Only active supervisors outside this semester are listed. Adding them
-          moves their assignment here; their earlier conversations stay in their
-          original semester.
-        </p>
-      )}
-      <input
-        aria-label="Search supervisors"
-        maxLength={100}
-        className={inputClass}
-        placeholder="Search supervisors…"
-        value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
-      />
-      {error && (
-        <p role="alert" className="text-rose-600 text-sm">
-          {error}
-        </p>
-      )}
-      {loading ? (
-        <p>Loading supervisors…</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr>
-                {candidates && <th>Select</th>}
-                <th className="p-2">Supervisor</th>
-                <th>Status</th>
-                <th>Current semester</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((user) => (
-                <tr
-                  key={user.id}
-                  className="border-t border-slate-100 dark:border-slate-800"
-                >
-                  {candidates && (
-                    <td>
-                      <input
-                        aria-label={`Select ${user.username}`}
-                        type="checkbox"
-                        disabled={
-                          busy ||
-                          (!selected.includes(user.id) &&
-                            selected.length >= 100)
-                        }
-                        checked={selected.includes(user.id)}
-                        onChange={(e) =>
-                          setSelected((prev) =>
-                            e.target.checked
-                              ? [...prev, user.id]
-                              : prev.filter((id) => id !== user.id)
-                          )
-                        }
-                      />
-                    </td>
-                  )}
-                  <td className="p-2">
-                    {user.first_name} {user.last_name}
-                    <span className="block text-xs text-slate-400">
-                      @{user.username}
-                    </span>
-                  </td>
-                  <td>{user.status === 'ACTIVE' ? 'Active' : 'Inactive'}</td>
-                  <td>
-                    {user.semester.name}
-                    {user.semester.deleted_at && ' (archived)'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!data.items.length && (
-            <p className="py-6 text-center text-slate-500">
-              No matching supervisors.
-            </p>
-          )}
-        </div>
-      )}
-      <Pagination page={page} total={data.total} change={setPage} />
-      {candidates && (
-        <div className="flex justify-end">
-          <button
-            disabled={busy || !selected.length}
-            className={primaryClass}
-            onClick={async () => {
-              setBusy(true);
-              setError('');
-              try {
-                await api.assignSupervisors(semester.id, selected);
-                setSelected([]);
-                setCandidates(false);
-                setSearch('');
-                setPage(1);
-                await changed();
-              } catch (error) {
-                setError(errorMessage(error));
-                setSelected([]);
-              } finally {
-                setRevision((v) => v + 1);
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? 'Moving…' : `Move ${selected.length} supervisors here`}
-          </button>
-        </div>
-      )}
-    </Dialog>
-  );
-}
+const actionClass =
+  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer';
+const neutralAction = `${actionClass} border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:border-blue-800 dark:hover:text-blue-400 dark:hover:bg-blue-950/40`;
+const archiveAction = `${actionClass} border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40`;
 
 export const SemesterManagement: React.FC = () => {
   const { api, refreshAdminData } = useApp();
@@ -623,13 +182,17 @@ export const SemesterManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
+  const [archiveError, setArchiveError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<{
     kind: 'edit' | 'files' | 'supervisors' | 'archive';
     semester?: Semester;
   } | null>(null);
-  const close = useCallback(() => setDialog(null), []);
+  const close = useCallback(() => {
+    setDialog(null);
+    setArchiveError('');
+  }, []);
   const changed = async () => {
     setRevision((v) => v + 1);
     await refreshAdminData();
@@ -652,42 +215,40 @@ export const SemesterManagement: React.FC = () => {
       cancelled = true;
     };
   }, [api, archived, search, page, revision]);
+
   return (
-    <div className="p-6 sm:p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex gap-2 items-center">
-            <Calendar className="text-blue-600" />
-            Semesters
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage teaching periods, shared documents, and supervisor
-            assignments.
-          </p>
-        </div>
-        <button
-          className={primaryClass}
-          onClick={() => setDialog({ kind: 'edit' })}
-        >
-          <Plus size={16} className="inline mr-1" />
-          Add semester
-        </button>
-      </div>
-      <div className="flex gap-3">
-        <input
+    <div className="p-4 sm:p-6 md:p-8 space-y-6 max-w-7xl mx-auto">
+      <PageHeader
+        title="Semesters"
+        subtitle="Manage teaching periods, shared documents, and supervisor assignments."
+        icon={<Calendar className="w-5 h-5" />}
+        actions={
+          <Button
+            variant="primary"
+            icon={<Plus size={16} />}
+            onClick={() => setDialog({ kind: 'edit' })}
+          >
+            Add semester
+          </Button>
+        }
+      />
+
+      <Card className="p-4 flex flex-col sm:flex-row gap-3">
+        <SearchInput
+          icon={<Search size={16} />}
           aria-label="Search semesters"
           maxLength={100}
-          className={inputClass}
           placeholder="Search semesters…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(1);
           }}
+          className="flex-1"
         />
         <select
           aria-label="Semester status"
-          className={inputClass}
+          className={`${inputClass} sm:w-56`}
           value={String(archived)}
           onChange={(e) => {
             setArchived(e.target.value === 'true');
@@ -697,87 +258,109 @@ export const SemesterManagement: React.FC = () => {
           <option value="false">Active semesters</option>
           <option value="true">Archived semesters</option>
         </select>
-      </div>
+      </Card>
+
       {error && (
-        <p role="alert" className="text-rose-600">
+        <p
+          role="alert"
+          className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-sm text-rose-700 dark:text-rose-300"
+        >
           {error}
         </p>
       )}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
+
+      <Card className="overflow-x-auto">
         {loading ? (
-          <p className="p-6">Loading semesters…</p>
+          <p className="p-6 text-sm text-slate-500">Loading semesters…</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800 text-xs text-slate-500">
+            <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
               <tr>
-                {[
-                  'Semester',
-                  'Year',
-                  'Dates',
-                  'Status',
-                  'Files',
-                  'Supervisors',
-                  'Actions'
-                ].map((label) => (
-                  <th key={label} className="p-4">
+                {['Semester', 'Period', 'Status', 'Actions'].map((label) => (
+                  <th
+                    key={label}
+                    className={`${thClass} ${label === 'Actions' ? 'text-right' : ''}`}
+                  >
                     {label}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {data.items.map((semester) => (
                 <tr
                   key={semester.id}
-                  className="border-t border-slate-100 dark:border-slate-800"
+                  className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
                 >
-                  <td className="p-4 font-semibold">{semester.name}</td>
-                  <td className="p-4">{semester.year}</td>
-                  <td className="p-4 whitespace-nowrap text-xs">
-                    {semester.start_date} – {semester.end_date}
+                  <td className="px-4 py-4">
+                    <p className="font-semibold text-slate-900 dark:text-white">
+                      {semester.name}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {semester.year}
+                    </p>
                   </td>
-                  <td className="p-4">
-                    {semester.deleted_at ? 'Archived' : 'Active'}
+                  <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-600 dark:text-slate-300">
+                    {formatPeriod(semester)}
                   </td>
-                  <td className="p-4">{semester.file_count}</td>
-                  <td className="p-4">{semester.supervisor_count}</td>
-                  <td className="p-4">
-                    <div className="flex gap-3">
+                  <td className="px-4 py-4">
+                    {semester.deleted_at ? (
+                      <Badge>Archived</Badge>
+                    ) : (
+                      <Badge tone="green">Active</Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <button
                         aria-label={`Manage files for ${semester.name}`}
                         title="Manage files"
+                        className={neutralAction}
                         onClick={() => setDialog({ kind: 'files', semester })}
                       >
-                        <Files size={17} />
+                        <Files size={14} />
+                        Files
+                        <span className="px-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px]">
+                          {semester.file_count ?? 0}
+                        </span>
                       </button>
                       <button
                         aria-label={`Manage supervisors for ${semester.name}`}
                         title="Manage supervisors"
+                        className={neutralAction}
                         onClick={() =>
                           setDialog({ kind: 'supervisors', semester })
                         }
                       >
-                        <Users size={17} />
+                        <Users size={14} />
+                        Supervisors
+                        <span className="px-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px]">
+                          {semester.supervisor_count ?? 0}
+                        </span>
                       </button>
                       {!semester.deleted_at && (
                         <>
                           <button
                             aria-label={`Edit ${semester.name}`}
                             title="Edit semester"
+                            className={neutralAction}
                             onClick={() =>
                               setDialog({ kind: 'edit', semester })
                             }
                           >
-                            <Pencil size={17} />
+                            <Pencil size={14} />
+                            Edit
                           </button>
                           <button
                             aria-label={`Archive ${semester.name}`}
                             title="Archive semester"
+                            className={archiveAction}
                             onClick={() =>
                               setDialog({ kind: 'archive', semester })
                             }
                           >
-                            <Archive size={17} className="text-amber-600" />
+                            <Archive size={14} />
+                            Archive
                           </button>
                         </>
                       )}
@@ -789,12 +372,16 @@ export const SemesterManagement: React.FC = () => {
           </table>
         )}
         {!loading && !data.items.length && (
-          <p className="text-center py-12 text-slate-500">
-            No semesters found. Create a semester before adding supervisors.
-          </p>
+          <div className="py-14 text-center space-y-2">
+            <Calendar className="mx-auto text-slate-300 dark:text-slate-600" size={32} />
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              No semesters found. Create a semester before adding supervisors.
+            </p>
+          </div>
         )}
-      </div>
+      </Card>
       <Pagination page={page} total={data.total} change={setPage} />
+
       {dialog?.kind === 'edit' && (
         <SemesterForm
           semester={dialog.semester}
@@ -817,42 +404,34 @@ export const SemesterManagement: React.FC = () => {
         />
       )}
       {dialog?.kind === 'archive' && dialog.semester && (
-        <Dialog title="Archive semester" close={close}>
-          <p className="text-sm">
-            Archive “{dialog.semester.name}”? Assigned supervisors will only be
-            able to read their history and download cited files. They can be
-            moved to another active semester later.
-          </p>
-          {error && (
-            <p role="alert" className="text-rose-600">
-              {error}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <button className={buttonClass} onClick={close}>
-              Cancel
-            </button>
-            <button
-              className={primaryClass}
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                setError('');
-                try {
-                  await api.archiveSemester(dialog.semester!.id);
-                  await changed();
-                  close();
-                } catch (error) {
-                  setError(errorMessage(error));
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Archive semester
-            </button>
-          </div>
-        </Dialog>
+        <ConfirmDialog
+          title="Archive semester"
+          tone="warning"
+          confirmLabel="Archive semester"
+          busy={busy}
+          error={archiveError}
+          message={
+            <>
+              Archive <strong>“{dialog.semester.name}”</strong>? Assigned
+              supervisors will only be able to read their history and download
+              cited files. They can be moved to another active semester later.
+            </>
+          }
+          onCancel={close}
+          onConfirm={async () => {
+            setBusy(true);
+            setArchiveError('');
+            try {
+              await api.archiveSemester(dialog.semester!.id);
+              await changed();
+              close();
+            } catch (error) {
+              setArchiveError(errorMessage(error));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
       )}
     </div>
   );
