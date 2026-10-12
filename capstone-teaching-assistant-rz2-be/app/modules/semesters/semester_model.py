@@ -11,12 +11,12 @@ class SemesterWriteDTO(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=255)
     year: int = Field(ge=2000, le=2100)
-    start_date: date
-    end_date: date
+    start_date: date | None = None
+    end_date: date | None = None
 
     @model_validator(mode="after")
     def valid_dates(self) -> Self:
-        if self.end_date < self.start_date:
+        if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValueError("End date must not precede start date.")
         return self
 

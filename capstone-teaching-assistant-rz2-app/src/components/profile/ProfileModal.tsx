@@ -126,10 +126,10 @@ export const ProfileModal: React.FC = () => {
       <div 
         id="profile-modal"
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
       >
         {/* Header with avatar banner */}
-        <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 px-6 pt-6 pb-12 relative text-white shrink-0">
+        <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 px-6 pt-6 pb-14 relative text-white shrink-0">
           <button
             id="profile-modal-close-icon"
             onClick={handleClose}
@@ -149,14 +149,14 @@ export const ProfileModal: React.FC = () => {
         </div>
 
         {/* Floating Avatar and Tab Selector */}
-        <div className="px-6 -mt-8 relative z-10 shrink-0">
+        <div className="px-6 relative z-10 shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
             <div className="flex items-end gap-3">
               {/* Account initial circle */}
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-700 text-white flex items-center justify-center font-black text-2xl uppercase shadow-lg border-4 border-white dark:border-slate-900 shrink-0">
+              <div className="-mt-8 w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-700 text-white flex items-center justify-center font-black text-2xl uppercase shadow-lg border-4 border-white dark:border-slate-900 shrink-0">
                 {initialChar}
               </div>
-              <div className="mb-1 min-w-0">
+              <div className="pt-2 min-w-0">
                 <h3 className="font-extrabold text-base text-slate-900 dark:text-white leading-tight truncate">
                   {currentUser.fullName || `${currentUser.firstName} ${currentUser.lastName}`}
                 </h3>
@@ -167,7 +167,7 @@ export const ProfileModal: React.FC = () => {
             </div>
 
             {/* Tab switch buttons */}
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 self-start sm:self-auto shrink-0">
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 self-start sm:self-end shrink-0">
               <button
                 id="profile-tab-details"
                 onClick={() => setActiveTab('profile')}

@@ -339,3 +339,44 @@ async def test_stream_close_after_complete_keeps_assistant_completed(
 
 
 pytestmark = pytest.mark.usefixtures("assigned_profiles")
+
+
+def test_source_payloads_hide_chunks_beyond_distance_threshold(session: AsyncSession) -> None:
+    from app.modules.messages.message_model import RetrievedChunkDTO
+
+    service = MessageService(
+        session,
+        chat=FakeChat(),
+        embeddings=FakeEmbeddings(),
+        settings=Settings(rag_source_max_distance=0.4),
+    )
+    file_id = UUID(int=1)
+    chunks = [
+        RetrievedChunkDTO(
+            chunk_id=UUID(int=10),
+            file_id=file_id,
+            original_filename="a.pdf",
+            mime_type="application/pdf",
+            content="close",
+            distance=0.2,
+        ),
+        RetrievedChunkDTO(
+            chunk_id=UUID(int=11),
+            file_id=file_id,
+            original_filename="a.pdf",
+            content="far",
+            distance=0.9,
+        ),
+        RetrievedChunkDTO(
+            chunk_id=UUID(int=12),
+            file_id=file_id,
+            original_filename="a.pdf",
+            content="unknown",
+            distance=None,
+        ),
+    ]
+
+    payloads = service._source_payloads(chunks)
+
+    assert [payload["content"] for payload in payloads] == ["close", "unknown"]
+    assert payloads[0]["mime_type"] == "application/pdf"

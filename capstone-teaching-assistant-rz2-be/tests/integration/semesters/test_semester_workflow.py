@@ -116,6 +116,26 @@ async def test_dates_are_validated_but_do_not_schedule_chat(client, admin_client
     assert (await client.post("/api/v1/conversations", json={})).status_code == 201
 
 
+async def test_semester_dates_are_optional(admin_client):
+    created = await admin_client.post(
+        "/api/v1/admin/semesters",
+        json={"name": "Undated", "year": 2026},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["start_date"] is None
+    assert created.json()["end_date"] is None
+
+    partial = await admin_client.post(
+        "/api/v1/admin/semesters",
+        json={"name": "Start only", "year": 2026, "start_date": "2026-02-01", "end_date": None},
+    )
+    assert partial.status_code == 201, partial.text
+
+    listed = await admin_client.get("/api/v1/admin/semesters", params={"search": "dated"})
+    assert listed.status_code == 200
+    assert [item["name"] for item in listed.json()["items"]] == ["Undated"]
+
+
 async def test_candidate_list_excludes_inactive_and_current_members_and_reports_source(
     client, admin_client, session
 ):

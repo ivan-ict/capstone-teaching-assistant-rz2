@@ -171,9 +171,16 @@ class MessageRepository:
         context: MessageGenerationContext,
         query_embedding: list[float],
         limit: int,
-    ) -> list[tuple[DocumentChunk, File]]:
+    ) -> list[tuple[DocumentChunk, File, float | None]]:
+        """Return the closest chunks with their cosine distance (None on SQLite)."""
+        bind = self.session.get_bind()
+        sqlite = bind.dialect.name == "sqlite"
+        distance = DocumentChunk.embedding.cosine_distance(query_embedding)
+        columns = (
+            (DocumentChunk, File) if sqlite else (DocumentChunk, File, distance.label("distance"))
+        )
         query = (
-            select(DocumentChunk, File)
+            select(*columns)
             .join(File, File.id == DocumentChunk.file_id)
             .where(
                 File.semester_id == context.semester_id,
@@ -183,13 +190,12 @@ class MessageRepository:
             )
             .limit(limit)
         )
-        bind = self.session.get_bind()
-        if bind.dialect.name == "sqlite":
+        if sqlite:
             query = query.order_by(DocumentChunk.chunk_index.asc())
         else:
-            query = query.order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
+            query = query.order_by(distance)
         result = await self.session.execute(query)
-        return [(row[0], row[1]) for row in result.all()]
+        return [(row[0], row[1], None if sqlite else float(row[2])) for row in result.all()]
 
     async def retrieve_messages(
         self,

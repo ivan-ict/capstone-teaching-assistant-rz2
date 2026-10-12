@@ -16,6 +16,7 @@ class MessageSourceDTO(BaseModel):
     chunk_id: UUID | None = None
     file_id: UUID
     original_filename: str
+    mime_type: str | None = None
     content: str
 
 
@@ -44,4 +45,6 @@ class RetrievedChunkDTO(BaseModel):
     chunk_id: UUID
     file_id: UUID
     original_filename: str
+    mime_type: str | None = None
     content: str
+    distance: float | None = None

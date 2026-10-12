@@ -1,9 +1,13 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
+from app.common.ai import preload_ollama_models
 from app.common.config import get_settings
 from app.common.errors import (
     ErrorDetailDTO,
@@ -30,9 +34,25 @@ ROLE_PROTECTED_TAGS = {
 }
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    task = (
+        asyncio.create_task(preload_ollama_models(settings))
+        if settings.ollama_preload_models
+        else None
+    )
+    yield
+    if task and not task.done():
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
+        lifespan=lifespan,
         title="Capstone Teaching Assistant API",
         version="0.1.0",
         description="Backend API for the Capstone Teaching Assistant project.",
