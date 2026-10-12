@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.common.db_models import FileProcessingStatus
 
@@ -29,25 +29,8 @@ class FileListDTO(BaseModel):
     total: int
 
 
-class FileUploadDTO(BaseModel):
-    original_filename: str = Field(min_length=1, max_length=255)
-    mime_type: str
-    content: bytes
-
-
 class FileContentDTO(BaseModel):
     id: UUID
     original_filename: str
     mime_type: str
     content: str
-
-
-class FileBulkDeleteDTO(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    file_ids: list[UUID] = Field(min_length=1, max_length=100)
-
-
-class FileBulkDeleteResultDTO(BaseModel):
-    deleted_ids: list[UUID]
-    failed_ids: list[UUID]

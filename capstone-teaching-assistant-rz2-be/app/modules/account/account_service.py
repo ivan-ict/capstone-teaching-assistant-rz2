@@ -18,6 +18,7 @@ from app.modules.account.account_model import (
 )
 from app.modules.account.account_repository import AccountRepository
 from app.modules.auth.auth_repository import AuthRepository
+from app.modules.semesters.semester_service import SemesterService
 
 
 class AccountService:
@@ -47,8 +48,7 @@ class AccountService:
                     code=faculty.code,
                     name=faculty.name,
                 ),
-                teaching_year=supervisor_profile.teaching_year,
-                teaching_semester=supervisor_profile.teaching_semester,
+                semester=await SemesterService(self.session).detail(supervisor_profile.semester),
             )
         return AccountDTO(
             id=user.id,

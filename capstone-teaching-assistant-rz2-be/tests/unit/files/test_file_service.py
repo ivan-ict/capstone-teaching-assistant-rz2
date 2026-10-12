@@ -14,7 +14,7 @@ from app.common.db_models import DocumentChunk, File, FileProcessingStatus
 from app.common.errors import ApiError
 from app.modules.files.file_repository import FileRepository
 from app.modules.files.file_service import FileService
-from tests.conftest import DEV_SUPERVISOR_ID
+from tests.conftest import DEV_SEMESTER_ID, DEV_SUPERVISOR_ID
 
 
 class FakeStorage:
@@ -164,7 +164,8 @@ async def test_upload_text_file_stores_file_and_chunks(session: AsyncSession) ->
     service = FileService(session, storage=storage, embeddings=FakeEmbeddings(), settings=settings)
 
     result = await service.upload_file(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename="notes.txt",
         content=b"Capstone teams need regular supervisor feedback.",
         mime_type="text/plain",
@@ -191,7 +192,8 @@ async def test_upload_rejects_unsupported_file(session: AsyncSession) -> None:
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=UUID("11111111-1111-1111-1111-111111111111"),
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="archive.zip",
             content=b"not text",
             mime_type="application/zip",
@@ -214,7 +216,8 @@ async def test_upload_marks_file_failed_when_embedding_dimension_is_wrong(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="notes.txt",
             content=b"Valid text.",
             mime_type="text/plain",
@@ -239,7 +242,8 @@ async def test_upload_marks_file_failed_when_chunk_database_write_fails(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="notes.txt",
             content=b"First chunk. Second chunk.",
             mime_type="text/plain",
@@ -268,7 +272,8 @@ async def test_upload_rejects_oversized_content_before_storage_write(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="notes.txt",
             content=b"too large",
             mime_type="text/plain",
@@ -292,7 +297,8 @@ async def test_upload_shapes_storage_upload_failure_before_database_write(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="notes.txt",
             content=b"Valid text.",
             mime_type="text/plain",
@@ -319,7 +325,8 @@ async def test_upload_deletes_object_when_database_create_fails(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="notes.txt",
             content=b"Valid text.",
             mime_type="text/plain",
@@ -344,7 +351,8 @@ async def test_upload_shapes_cleanup_failure_after_database_create_fails(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="notes.txt",
             content=b"Valid text.",
             mime_type="text/plain",
@@ -355,9 +363,10 @@ async def test_upload_shapes_cleanup_failure_after_database_create_fails(
 
 
 @pytest.mark.asyncio
-async def test_delete_flushes_database_before_storage_delete(session: AsyncSession) -> None:
+async def test_soft_delete_retains_storage_for_historical_citations(session: AsyncSession) -> None:
     file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename="notes.txt",
         stored_filename="notes.txt",
         storage_base_url="http://localhost:9000/capstone-files/",
@@ -378,47 +387,17 @@ async def test_delete_flushes_database_before_storage_delete(session: AsyncSessi
         settings=Settings(),
     )
 
-    await service.delete_file(DEV_SUPERVISOR_ID, file.id)
+    await service.delete_file(DEV_SEMESTER_ID, file.id)
 
-    assert events == ["repository_delete", "storage_delete"]
-
-
-@pytest.mark.asyncio
-async def test_delete_rolls_back_database_when_storage_delete_fails(
-    session: AsyncSession,
-) -> None:
-    file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
-        original_filename="notes.txt",
-        stored_filename="notes.txt",
-        storage_base_url="http://localhost:9000/capstone-files/",
-        storage_path="supervisors/dev/files/notes.txt",
-        mime_type="text/plain",
-        file_size_bytes=64,
-        processing_status=FileProcessingStatus.READY,
-    )
-    session.add(file)
-    await session.commit()
-    service = FileService(
-        session,
-        storage=FailingDeleteStorage(),
-        embeddings=FakeEmbeddings(),
-        settings=Settings(),
-    )
-
-    with pytest.raises(ApiError) as exc:
-        await service.delete_file(DEV_SUPERVISOR_ID, file.id)
-
-    await session.refresh(file)
-    assert exc.value.code == "OBJECT_STORAGE_DELETE_FAILED"
-    assert exc.value.http_status == 502
-    assert file.deleted_at is None
+    assert events == ["repository_delete"]
+    assert file.deleted_at is not None
 
 
 @pytest.mark.asyncio
 async def test_download_shapes_storage_failure(session: AsyncSession) -> None:
     file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename="notes.txt",
         stored_filename="notes.txt",
         storage_base_url="http://localhost:9000/capstone-files/",
@@ -437,7 +416,7 @@ async def test_download_shapes_storage_failure(session: AsyncSession) -> None:
     )
 
     with pytest.raises(ApiError) as exc:
-        await service.download_file(DEV_SUPERVISOR_ID, file.id)
+        await service.download_file(DEV_SEMESTER_ID, file.id)
 
     assert exc.value.code == "OBJECT_STORAGE_DOWNLOAD_FAILED"
     assert exc.value.http_status == 502
@@ -454,7 +433,8 @@ async def test_upload_text_file_caps_stored_filename_length(session: AsyncSessio
     long_filename = f"{'a' * 251}.txt"
 
     result = await service.upload_file(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename=long_filename,
         content=b"Long filename content.",
         mime_type="text/plain",
@@ -490,7 +470,8 @@ async def test_upload_rejects_overlong_metadata_before_storage_write(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename=original_filename,
             content=b"Valid text.",
             mime_type=mime_type,
@@ -512,7 +493,8 @@ async def test_upload_markdown_preserves_source_text_for_retrieval(session: Asyn
     )
 
     result = await service.upload_file(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename="guide.md",
         content=b"# Assessment\n\nUse the published rubric.",
         mime_type="text/markdown",
@@ -545,7 +527,8 @@ async def test_upload_docx_extracts_paragraphs_and_tables_in_document_order(
     )
 
     result = await service.upload_file(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename="requirements.docx",
         content=buffer.getvalue(),
         mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -569,7 +552,8 @@ async def test_upload_pdf_extracts_text_for_retrieval(session: AsyncSession) -> 
     )
 
     result = await service.upload_file(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename="handbook.pdf",
         content=_pdf_with_text("Capstone PDF guidance"),
         mime_type="application/pdf",
@@ -596,7 +580,8 @@ async def test_upload_image_describes_content_before_embedding(
     )
 
     result = await service.upload_file(
-        supervisor_id=DEV_SUPERVISOR_ID,
+        semester_id=DEV_SEMESTER_ID,
+        uploaded_by=DEV_SUPERVISOR_ID,
         original_filename=f"diagram.{mime_type.rsplit('/', 1)[1]}",
         content=b"image bytes",
         mime_type=mime_type,
@@ -623,7 +608,8 @@ async def test_upload_marks_image_failed_when_vision_model_fails(session: AsyncS
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="diagram.png",
             content=b"image bytes",
             mime_type="image/png",
@@ -649,7 +635,8 @@ async def test_upload_rejects_conflicting_extension_and_mime_type(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="rubric.pdf",
             content=b"not a PDF",
             mime_type="image/png",
@@ -673,7 +660,8 @@ async def test_upload_rejects_pdf_without_extractable_text_before_storage(
 
     with pytest.raises(ApiError) as exc:
         await service.upload_file(
-            supervisor_id=DEV_SUPERVISOR_ID,
+            semester_id=DEV_SEMESTER_ID,
+            uploaded_by=DEV_SUPERVISOR_ID,
             original_filename="scan.pdf",
             content=(
                 b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"

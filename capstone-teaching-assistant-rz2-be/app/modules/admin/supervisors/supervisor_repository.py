@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.db_models import (
     AccountStatus,
     Faculty,
+    Semester,
     SupervisorProfile,
-    TeachingSemester,
     User,
     UserRole,
 )
@@ -57,8 +57,7 @@ class SupervisorRepository:
         search: str | None,
         faculty_id: UUID | None,
         status: AccountStatus | None,
-        teaching_year: int | None,
-        teaching_semester: TeachingSemester | None,
+        semester_id: UUID | None,
         sort_by: str,
         sort_order: str,
         page: int,
@@ -84,15 +83,14 @@ class SupervisorRepository:
             filters.append(SupervisorProfile.faculty_id == faculty_id)
         if status:
             filters.append(User.status == status)
-        if teaching_year is not None:
-            filters.append(SupervisorProfile.teaching_year == teaching_year)
-        if teaching_semester is not None:
-            filters.append(SupervisorProfile.teaching_semester == teaching_semester)
+        if semester_id is not None:
+            filters.append(SupervisorProfile.semester_id == semester_id)
 
         base_query = (
             select(User, SupervisorProfile, Faculty)
             .join(SupervisorProfile, SupervisorProfile.user_id == User.id)
             .join(Faculty, Faculty.id == SupervisorProfile.faculty_id)
+            .join(Semester, Semester.id == SupervisorProfile.semester_id)
             .where(*filters)
         )
         total_query = select(func.count()).select_from(base_query.subquery())
@@ -102,8 +100,7 @@ class SupervisorRepository:
             "username": User.username,
             "email": SupervisorProfile.email,
             "faculty": Faculty.name,
-            "teaching_year": SupervisorProfile.teaching_year,
-            "teaching_semester": SupervisorProfile.teaching_semester,
+            "semester": Semester.name,
             "created_at": User.created_at,
             "updated_at": User.updated_at,
         }
@@ -127,6 +124,7 @@ class SupervisorRepository:
             select(User, SupervisorProfile, Faculty)
             .join(SupervisorProfile, SupervisorProfile.user_id == User.id)
             .join(Faculty, Faculty.id == SupervisorProfile.faculty_id)
+            .join(Semester, Semester.id == SupervisorProfile.semester_id)
             .where(
                 User.id == supervisor_id,
                 User.role == UserRole.SUPERVISOR,

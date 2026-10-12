@@ -1,17 +1,18 @@
 # Capstone Teaching Assistant
 
 Capstone Teaching Assistant is a local AI-assisted workspace for university capstone
-supervisors. It combines project and conversation management with document retrieval so
-supervisors can ask questions against project material and receive source-backed answers.
+supervisors. Admins manage semesters and their shared documents; supervisors ask questions against
+their assigned semester and receive source-backed answers in private conversations.
 
 ## Features
 
 - Administrator and supervisor account workflows
-- Project instructions that guide assistant responses
-- Conversation history, search, file associations, and source references
-- Upload and indexing for TXT, Markdown, PDF, DOCX, JPEG, PNG, and WebP files
+- Emailed credentials (Gmail SMTP): generated passwords on account creation, admin resets, and self-service "Forgot password?"
+- Admin-managed semesters, required supervisor assignments, and read-only archived history
+- Private conversation history, search, and downloadable source references
+- Admin-only semester uploads and indexing for TXT, Markdown, PDF, DOCX, JPEG, PNG, and WebP files
 - AI-generated image descriptions that follow the normal chunking and embedding pipeline
-- PostgreSQL and pgvector retrieval across conversation files
+- PostgreSQL and pgvector retrieval across semester files and personal semester conversations
 - Streaming assistant responses from local Ollama models
 - RustFS-backed file storage
 
@@ -34,6 +35,13 @@ capstone-teaching-assistant-rz2-be/   FastAPI backend, migrations, and Docker Co
 docs/                                 Project documentation
 scripts/                              Cross-platform local runners
 ```
+
+## Upgrading an existing development database
+
+The semester migration requires clearing legacy supervisors and workspace data. It refuses
+to discard them automatically. Stop the app, then follow the explicit
+[reset and migration procedure](capstone-teaching-assistant-rz2-be/README.md#semester-upgrade).
+Fresh databases need no reset.
 
 ## One-Command Local Start
 
@@ -96,8 +104,8 @@ username: admin
 password: AdminPassword123!
 ```
 
-Use the administrator account to create a supervisor account for the teaching-assistant chat
-workflow. If an existing database or custom `.env` is used, use the credentials configured for
+Use the administrator account to create a semester, upload its files, and create a supervisor
+assigned to that semester. If an existing database or custom `.env` is used, use the credentials configured for
 that environment instead.
 
 ## Configuration and Development
@@ -106,6 +114,10 @@ The runners copy the following files only when their local counterparts do not e
 
 - `capstone-teaching-assistant-rz2-be/.env.example` -> `.env`
 - `capstone-teaching-assistant-rz2-app/.env.example` -> `.env.local`
+
+Email delivery defaults to `EMAIL_BACKEND=console`, which writes emails to the API log. To send
+real mail, configure a Gmail app password as described in the
+[backend README](capstone-teaching-assistant-rz2-be/README.md#email-gmail-smtp).
 
 For manual setup, backend configuration, migrations, API commands, and verification, see the
 [backend README](capstone-teaching-assistant-rz2-be/README.md). For frontend-only commands, see

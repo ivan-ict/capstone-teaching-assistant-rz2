@@ -1,10 +1,18 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.db_models import DocumentChunk, File, FileProcessingStatus, MessageFile
+from app.common.db_models import (
+    Conversation,
+    DocumentChunk,
+    File,
+    FileProcessingStatus,
+    Message,
+    SupervisorProfile,
+    UserRole,
+)
 
 
 class FileRepository:
@@ -15,7 +23,8 @@ class FileRepository:
         self,
         *,
         file_id: UUID,
-        supervisor_id: UUID,
+        semester_id: UUID,
+        uploaded_by: UUID,
         original_filename: str,
         stored_filename: str,
         storage_base_url: str,
@@ -25,7 +34,8 @@ class FileRepository:
     ) -> File:
         file = File(
             id=file_id,
-            supervisor_id=supervisor_id,
+            semester_id=semester_id,
+            uploaded_by=uploaded_by,
             original_filename=original_filename,
             stored_filename=stored_filename,
             storage_base_url=storage_base_url,
@@ -39,23 +49,23 @@ class FileRepository:
         await self.session.refresh(file)
         return file
 
-    async def get_for_supervisor(self, file_id: UUID, supervisor_id: UUID) -> File | None:
+    async def get_for_semester(self, file_id: UUID, semester_id: UUID) -> File | None:
         query = select(File).where(
             File.id == file_id,
-            File.supervisor_id == supervisor_id,
+            File.semester_id == semester_id,
             File.deleted_at.is_(None),
         )
         return await self.session.scalar(query)
 
-    async def list_for_supervisor(
+    async def list_for_semester(
         self,
-        supervisor_id: UUID,
+        semester_id: UUID,
         search: str | None,
         processing_status: FileProcessingStatus | None,
         page: int,
         page_size: int,
     ) -> tuple[list[File], int]:
-        filters = [File.supervisor_id == supervisor_id, File.deleted_at.is_(None)]
+        filters = [File.semester_id == semester_id, File.deleted_at.is_(None)]
         if search:
             filters.append(File.original_filename.ilike(f"%{search}%"))
         if processing_status:
@@ -101,22 +111,28 @@ class FileRepository:
         return file
 
     async def delete(self, file: File) -> None:
-        deleted_at = datetime.now(UTC)
-        file.deleted_at = deleted_at
-        await self.session.execute(
-            update(DocumentChunk)
-            .where(
-                DocumentChunk.file_id == file.id,
-                DocumentChunk.deleted_at.is_(None),
-            )
-            .values(deleted_at=deleted_at)
-        )
-        await self.session.execute(
-            update(MessageFile)
-            .where(
-                MessageFile.file_id == file.id,
-                MessageFile.deleted_at.is_(None),
-            )
-            .values(deleted_at=deleted_at)
-        )
+        file.deleted_at = datetime.now(UTC)
         await self.session.flush()
+
+    async def accessible_file(self, file_id: UUID, user_id: UUID, role: UserRole) -> File | None:
+        file = await self.session.scalar(
+            select(File).where(File.id == file_id, File.deleted_at.is_(None))
+        )
+        if file is None or role == UserRole.ADMIN:
+            return file
+        sources = await self.session.scalars(
+            select(Message.sources)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .join(SupervisorProfile, SupervisorProfile.user_id == Conversation.supervisor_id)
+            .where(
+                Conversation.supervisor_id == user_id,
+                Conversation.semester_id == file.semester_id,
+                SupervisorProfile.semester_id == file.semester_id,
+                SupervisorProfile.deleted_at.is_(None),
+                Conversation.deleted_at.is_(None),
+                Message.deleted_at.is_(None),
+            )
+        )
+        if any(str(source.get("file_id")) == str(file_id) for items in sources for source in items):
+            return file
+        return None

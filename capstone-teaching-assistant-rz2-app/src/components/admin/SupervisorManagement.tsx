@@ -26,9 +26,9 @@ import { User } from '../../types';
 import { formatDate, formatDateTime, getInitials } from '../../utils/formatters';
 import { AddSupervisorModal } from './AddSupervisorModal';
 import { EditSupervisorModal } from './EditSupervisorModal';
-import { ChangePasswordModal } from './ChangePasswordModal';
+import { ResetPasswordModal } from './ResetPasswordModal';
 
-type SortField = 'fullName' | 'username' | 'faculty' | 'teachingYear' | 'teachingSemester' | 'email' | 'createdAt' | 'updatedAt';
+type SortField = 'fullName' | 'username' | 'faculty' | 'semester' | 'email' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
 type SearchScope = 'all' | 'name' | 'username' | 'email' | 'phone';
 
@@ -86,12 +86,12 @@ export const SupervisorManagement: React.FC = () => {
 
   // Available unique options for filters
   const availableYears = useMemo(() => {
-    const years = Array.from(new Set(supervisors.map(s => s.teachingYear).filter(Boolean)));
+    const years = Array.from(new Set(supervisors.map(s => String(s.semester?.year || '')).filter(Boolean)));
     const baseYears = ['2030', '2029', '2028', '2027', '2026', '2025', '2024', '2023', '2022'];
     return Array.from(new Set([...baseYears, ...years])).sort((a, b) => Number(b) - Number(a));
   }, [supervisors]);
 
-  const availableSemesters = ['Semester 1', 'Semester 2'];
+  const availableSemesters = Array.from(new Set(supervisors.map(s => s.semester?.name).filter(Boolean))) as string[];
 
   // Toggle multi-select item
   const toggleFaculty = (facName: string) => {
@@ -124,12 +124,12 @@ export const SupervisorManagement: React.FC = () => {
       }
 
       // Multi-select Filter by Teaching Year
-      if (selectedYears.length > 0 && !selectedYears.includes(s.teachingYear || '')) {
+      if (selectedYears.length > 0 && !selectedYears.includes(String(s.semester?.year || '') || '')) {
         return false;
       }
 
       // Multi-select Filter by Teaching Semester
-      if (selectedSemesters.length > 0 && !selectedSemesters.includes(s.teachingSemester || '')) {
+      if (selectedSemesters.length > 0 && !selectedSemesters.includes(s.semester?.name || '')) {
         return false;
       }
 
@@ -178,8 +178,8 @@ export const SupervisorManagement: React.FC = () => {
   // Sort supervisors
   const sortedSupervisors = useMemo(() => {
     return [...filteredSupervisors].sort((a, b) => {
-      let aVal = a[sortField] || '';
-      let bVal = b[sortField] || '';
+      let aVal = (sortField === 'semester' ? a.semester?.name : a[sortField]) || '';
+      let bVal = (sortField === 'semester' ? b.semester?.name : b[sortField]) || '';
 
       if (sortField === 'createdAt' || sortField === 'updatedAt') {
         const timeA = new Date(aVal).getTime();
@@ -612,10 +612,10 @@ export const SupervisorManagement: React.FC = () => {
                 </th>
 
                 {/* Academic Term Column */}
-                <th className="py-3.5 px-4 cursor-pointer group" onClick={() => handleSort('teachingYear')}>
+                <th className="py-3.5 px-4 cursor-pointer group" onClick={() => handleSort('semester')}>
                   <div className="flex items-center gap-1.5">
-                    <span>Academic Term</span>
-                    {renderSortIcon('teachingYear')}
+                    <span>Semester</span>
+                    {renderSortIcon('semester')}
                   </div>
                 </th>
 
@@ -684,9 +684,9 @@ export const SupervisorManagement: React.FC = () => {
                       {/* Academic Term */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
-                          <span className="font-bold text-blue-600 dark:text-blue-400">{s.teachingYear || '2026'}</span>
+                          <span className="font-bold text-blue-600 dark:text-blue-400">{s.semester?.year || '—'}</span>
                           <span className="text-slate-400">&bull;</span>
-                          <span>{s.teachingSemester || 'Semester 1'}</span>
+                          <span>{s.semester?.name || '—'}{s.semester?.deleted_at && ' (archived)'}</span>
                         </div>
                       </td>
 
@@ -728,15 +728,15 @@ export const SupervisorManagement: React.FC = () => {
                             <span>Edit</span>
                           </button>
 
-                          {/* Change Password Action for Admin */}
+                          {/* Reset Password Action for Admin (new password is emailed) */}
                           <button
-                            id={`change-password-btn-${s.id}`}
+                            id={`reset-password-btn-${s.id}`}
                             onClick={() => setPasswordChangeTarget(s)}
                             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-                            title="Change password for this supervisor"
+                            title="Generate a new password and email it to this supervisor"
                           >
                             <KeyRound className="w-3.5 h-3.5 text-amber-500" />
-                            <span>Password</span>
+                            <span>Reset password</span>
                           </button>
 
                           {activeTab === 'active' ? (
@@ -787,9 +787,9 @@ export const SupervisorManagement: React.FC = () => {
         />
       )}
 
-      {/* Change Password Modal */}
+      {/* Reset Password Modal */}
       {passwordChangeTarget && (
-        <ChangePasswordModal
+        <ResetPasswordModal
           supervisor={passwordChangeTarget}
           onClose={() => setPasswordChangeTarget(null)}
         />

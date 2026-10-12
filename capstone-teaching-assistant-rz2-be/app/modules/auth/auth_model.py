@@ -23,3 +23,15 @@ class LoginResponseDTO(BaseModel):
     status: AccountStatus
     access_token: str
     token_type: str = "bearer"
+
+
+class ForgotPasswordRequestDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=320)
+    ]
+
+
+class ForgotPasswordResponseDTO(BaseModel):
+    message: str

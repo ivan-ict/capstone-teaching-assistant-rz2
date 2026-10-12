@@ -1,74 +1,60 @@
 // @vitest-environment jsdom
-
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SUPPORTED_UPLOAD_ACCEPT } from '../../constants/files';
-import { AttachedFile } from '../../types';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor
+} from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatInput } from './ChatInput';
-
 const app = vi.hoisted(() => ({
-  uploadFiles: vi.fn(),
-  pendingChatAttachments: [] as AttachedFile[],
-  setPendingChatAttachments: vi.fn(),
-  previewFile: vi.fn(),
-  libraryFiles: [] as AttachedFile[],
-  projects: [],
+  sendMessage: vi.fn(),
+  isGeneratingResponse: false,
+  currentUser: { semester: { deleted_at: null as string | null } }
 }));
-
 vi.mock('../../context/AppContext', () => ({ useApp: () => app }));
-
-const uploadedFile: AttachedFile = {
-  id: 'ready-file',
-  name: 'diagram.png',
-  size: 9,
-  type: 'image/png',
-  uploadedAt: '2026-08-30T00:00:00Z',
-  isImage: true,
-};
-
-describe('ChatInput attachments', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    app.pendingChatAttachments = [];
+afterEach(cleanup);
+beforeEach(() => {
+  vi.clearAllMocks();
+  app.currentUser.semester.deleted_at = null;
+  app.sendMessage.mockResolvedValue(true);
+});
+it('sends text without exposing any supervisor upload or attachment controls', async () => {
+  const { container } = render(<ChatInput />);
+  expect(container.querySelector('input[type="file"]')).toBeNull();
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: 'Explain the rubric' }
   });
-
-  it('indexes selected files before enabling Send and does not upload again on Send', async () => {
-    let finishUpload: (files: AttachedFile[]) => void = () => undefined;
-    app.uploadFiles.mockReturnValue(
-      new Promise<AttachedFile[]>(resolve => {
-        finishUpload = resolve;
-      }),
-    );
-    const onSendMessage = vi.fn();
-    const { container } = render(<ChatInput onSendMessage={onSendMessage} />);
-    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
-
-    expect(fileInput?.accept).toBe(SUPPORTED_UPLOAD_ACCEPT);
-    fireEvent.change(fileInput!, { target: { files: [new File(['diagram'], 'diagram.png')] } });
-
-    expect(app.uploadFiles).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send message' }).disabled).toBe(true);
-    expect(screen.getByText('Uploading and indexing…')).toBeTruthy();
-
-    await act(async () => finishUpload([uploadedFile]));
-    await screen.findByText('diagram.png');
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-
-    expect(onSendMessage).toHaveBeenCalledWith('', [uploadedFile]);
-    expect(app.uploadFiles).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() =>
+    expect(app.sendMessage).toHaveBeenCalledWith('Explain the rubric')
+  );
+  await waitFor(() =>
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('')
+  );
+});
+it('prevents new messages when the assigned semester is archived', () => {
+  app.currentUser.semester.deleted_at = '2026-09-18';
+  render(<ChatInput />);
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox').disabled).toBe(true);
+  expect(
+    screen.getByRole<HTMLButtonElement>('button', { name: 'Send message' })
+      .disabled
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(app.sendMessage).not.toHaveBeenCalled();
+});
+it('keeps the draft when the server rejects sending', async () => {
+  app.sendMessage.mockResolvedValue(false);
+  render(<ChatInput />);
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: 'Keep my draft' }
   });
-
-  it('removes a draft attachment locally without deleting the indexed library file', async () => {
-    app.uploadFiles.mockResolvedValue([uploadedFile]);
-    const { container } = render(<ChatInput onSendMessage={vi.fn()} />);
-    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
-
-    fireEvent.change(fileInput!, { target: { files: [new File(['diagram'], 'diagram.png')] } });
-    await screen.findByText('diagram.png');
-    fireEvent.click(screen.getByTitle('Remove attachment'));
-
-    await waitFor(() => expect(screen.queryByText('diagram.png')).toBeNull());
-    expect(app.uploadFiles).toHaveBeenCalledTimes(1);
-  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(app.sendMessage).toHaveBeenCalled());
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox').value).toBe(
+    'Keep my draft'
+  );
 });

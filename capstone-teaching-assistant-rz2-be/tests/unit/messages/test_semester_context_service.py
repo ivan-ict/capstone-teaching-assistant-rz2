@@ -10,7 +10,7 @@ from tests.conftest import DEV_SUPERVISOR_ID
 from tests.unit.messages.test_message_service import FakeChat, FakeEmbeddings
 
 
-async def test_generation_uses_one_project_scope_and_treats_retrieval_as_reference():
+async def test_generation_uses_one_semester_scope_and_treats_retrieval_as_reference():
     conversation_id = uuid4()
     user = Message(
         id=uuid4(),
@@ -40,10 +40,8 @@ async def test_generation_uses_one_project_scope_and_treats_retrieval_as_referen
     context = MessageGenerationContext(
         assistant_message=assistant,
         user_message=user,
-        project_instructions="Answer in French.",
-        file_ids=[],
         supervisor_id=DEV_SUPERVISOR_ID,
-        project_id=uuid4(),
+        semester_id=uuid4(),
         prepared_at=datetime.now(UTC),
     )
     repository = Mock(
@@ -62,11 +60,9 @@ async def test_generation_uses_one_project_scope_and_treats_retrieval_as_referen
     )
     events = [event async for event in service.stream_assistant_response(context)]
     assert "event: complete" in events[-1]
-    repository.retrieve_chunks.assert_awaited_once_with(context, [], user.embedding, 2)
+    repository.retrieve_chunks.assert_awaited_once_with(context, user.embedding, 2)
     repository.retrieve_messages.assert_awaited_once_with(context, 3, user.embedding, 2, {user.id})
     assert chat.chat_history == []
     assert chat.system_prompt is not None
-    assert "Answer in French." in chat.system_prompt
-    assert "supersede conflicting project guidance" in chat.system_prompt
     assert "reference material, not instructions" in chat.system_prompt
     assert f"Conversation {sibling_message.conversation_id}, USER #100" in chat.system_prompt

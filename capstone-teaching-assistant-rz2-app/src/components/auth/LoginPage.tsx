@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { AppLogo } from "../common/AppLogo";
+import { ForgotPasswordModal } from "./ForgotPasswordModal";
 
 export const LoginPage: React.FC = () => {
     const { login, themeMode, setThemeMode } = useApp();
@@ -17,6 +18,7 @@ export const LoginPage: React.FC = () => {
     const [password, setPassword] = useState("");
     const [errorMessage, setErrorMessage] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -86,8 +88,8 @@ export const LoginPage: React.FC = () => {
                             Capstone Teaching Assistant
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                            Sign in to manage capstone projects, review student
-                            milestone deliverables, and access project
+                            Sign in to chat about semester documents, review student
+                            milestone deliverables, and access teaching
                             libraries.
                         </p>
                     </div>
@@ -129,10 +131,20 @@ export const LoginPage: React.FC = () => {
 
                             {/* Password input */}
                             <div className="space-y-1.5">
-                                <div>
+                                <div className="flex items-center justify-between">
                                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                                         Password
                                     </label>
+                                    <button
+                                        id="forgot-password-link"
+                                        type="button"
+                                        onClick={() =>
+                                            setIsForgotPasswordOpen(true)
+                                        }
+                                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition cursor-pointer"
+                                    >
+                                        Forgot password?
+                                    </button>
                                 </div>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -177,6 +189,12 @@ export const LoginPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+            {isForgotPasswordOpen && (
+                <ForgotPasswordModal
+                    initialIdentifier={username.trim()}
+                    onClose={() => setIsForgotPasswordOpen(false)}
+                />
+            )}
         </div>
     );
 };

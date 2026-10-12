@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MessageSquare, Folder, ArrowRight } from 'lucide-react';
+import { Search, X, MessageSquare, ArrowRight } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { formatDate } from '../../utils/formatters';
 
@@ -9,7 +9,6 @@ export const SearchConversationModal: React.FC = () => {
     setIsSearchModalOpen, 
     conversations, 
     searchConversations,
-    projects, 
     setActiveConversationId, 
     setActiveSupervisorView 
   } = useApp();
@@ -60,18 +59,7 @@ export const SearchConversationModal: React.FC = () => {
 
   if (!isSearchModalOpen) return null;
 
-  const filteredConversations = results.filter(c => {
-    if (!query.trim()) return true;
-    const q = query.toLowerCase();
-    const matchesTitle = c.title.toLowerCase().includes(q);
-    const matchesMessage = c.messages.some(m => m.content.toLowerCase().includes(q));
-    return matchesTitle || matchesMessage;
-  });
-
-  const getProjectName = (projectId?: string | null) => {
-    if (!projectId) return null;
-    return projects.find(p => p.id === projectId)?.name || null;
-  };
+  const filteredConversations = results;
 
   const handleSelect = (convId: string) => {
     setActiveConversationId(convId);
@@ -116,7 +104,6 @@ export const SearchConversationModal: React.FC = () => {
             </div>
           ) : (
             filteredConversations.map(conv => {
-              const projName = getProjectName(conv.projectId);
               const lastMessage = conv.messages[conv.messages.length - 1];
 
               return (
@@ -132,13 +119,6 @@ export const SearchConversationModal: React.FC = () => {
                         {conv.title}
                       </span>
                     </div>
-
-                    {projName && (
-                      <div className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400 mb-1">
-                        <Folder className="w-3 h-3" />
-                        <span className="truncate">{projName}</span>
-                      </div>
-                    )}
 
                     {lastMessage && (
                       <p className="text-[11px] text-slate-500 truncate max-w-md">

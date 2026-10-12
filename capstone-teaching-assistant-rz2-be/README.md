@@ -34,7 +34,7 @@ app/
     faculties/
     files/
     messages/
-    projects/
+    semesters/
 migrations/
 tests/
   integration/
@@ -168,18 +168,56 @@ password=AdminPassword123!
 Authenticated API requests must use the bearer token returned by `POST /api/v1/auth/login`.
 `POST /api/v1/auth/logout` revokes the current token.
 
+### Email (Gmail SMTP)
+
+The backend emails credentials in three cases:
+
+- When an admin creates a supervisor (`POST /api/v1/admin/supervisors`), a password is generated
+  and emailed to the supervisor. The admin no longer chooses it.
+- When an admin resets a supervisor's password (`POST /api/v1/admin/supervisors/{id}/password-reset`),
+  a new password is generated and emailed.
+- When anyone submits `POST /api/v1/auth/forgot-password` with a supervisor's username or email,
+  that supervisor's password is replaced immediately and the new one is emailed. This endpoint
+  needs no authentication. It always returns the same `202` response, and it is rate limited per
+  account (`PASSWORD_RESET_COOLDOWN_SECONDS`) and per IP (`PASSWORD_RESET_IP_LIMIT` within
+  `PASSWORD_RESET_IP_WINDOW_SECONDS`). Admin accounts have no email address and are not eligible.
+
+For admin create and reset, the email is sent before the change is committed. If delivery fails,
+the API returns `502 EMAIL_DELIVERY_FAILED` and nothing changes.
+
+By default `EMAIL_BACKEND=console`, which writes emails to the API log so that local development
+works without credentials. To send real mail through Gmail:
+
+1. Turn on 2-Step Verification for the sending Google account.
+2. Create an app password at <https://myaccount.google.com/apppasswords>.
+3. Set the following in `.env`. Paste the 16-character app password without spaces, and keep
+   `SMTP_FROM_EMAIL` the same as the Gmail account, or Gmail will rewrite it.
+
+```text
+EMAIL_BACKEND=smtp
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your.address@gmail.com
+SMTP_PASSWORD=abcdefghijklmnop
+SMTP_FROM_EMAIL=your.address@gmail.com
+FRONTEND_LOGIN_URL=http://localhost:3000
+```
+
+Signed-in users can change their own password with `PUT /api/v1/account/password`.
+
 ## Chat MVP
 
 Implemented MVP workflow:
 
 - Conversation CRUD
-- Global file library CRUD
+- Admin semester CRUD, archive, and atomic supervisor assignments
+- Admin-only semester file upload and soft deletion
 - Text, Markdown, PDF, DOCX, JPEG, PNG, and WebP upload to RustFS
 - Extracted document text and generated image descriptions stored as embedded chunks
 - Message creation with user and assistant message pair
 - SSE assistant response streaming
 - Retry assistant generation
-- pgvector retrieval over uploaded document chunks and message embeddings
+- pgvector retrieval over all ready semester documents and the supervisor’s personal same-semester messages
 
 Text and Markdown uploads must use UTF-8. PDFs must contain an extractable text layer;
 scanned PDFs are not processed with OCR. Images are described by `OLLAMA_VISION_MODEL`, and
@@ -193,8 +231,9 @@ Run the local chat demo:
 uv run streamlit run tools/chat_demo.py
 ```
 
-The app lets you create/select conversations, upload and index TXT, Markdown, PDF, DOCX, and image files before sending, attach ready library files, submit chat prompts, and stream assistant responses from the FastAPI backend.
-Sign in with a Supervisor account. Use the seeded admin account to create a Supervisor first through `/docs` if your local database does not have one yet.
+The demo lets supervisors create/select conversations and stream answers from their assigned semester.
+Archived semesters are read-only. Use Admin to create a semester, upload documents, and create
+a supervisor with the required `semester_id` before signing into the demo.
 
 ## Tests And Checks
 
@@ -255,3 +294,42 @@ tests/
 ```
 
 Unit tests should focus on service behavior. Integration tests should exercise real FastAPI request/response workflows with test doubles only where external services would otherwise be required.
+
+
+## Semester upgrade
+
+Existing development data is disposable for this change. **Stop the backend and demo before
+resetting.** The reset deletes supervisor accounts, projects, conversations, messages, files,
+and their stored objects. It preserves admin accounts and faculties. Do not run it against
+any database whose supervisor/workspace data you need to retain.
+
+From this directory, with `APP_ENVIRONMENT=development` and the intended `DATABASE_URL`:
+
+```bash
+uv run python tools/reset_development_workspace.py --confirm-reset
+uv run alembic upgrade head
+```
+
+The reset reports removal counts and fails loudly on object-storage errors. Object deletion
+cannot roll back: on failure the database records remain, but some objects may already have
+been removed. Resolve the reported storage issue and rerun before migrating.
+The migration itself refuses populated legacy tables. Downgrading ownership to projects is
+unsupported; restore a pre-upgrade backup if necessary. Frontend and backend must be upgraded
+together. The normal startup script does not run the reset.
+
+After upgrading, create an active semester in Admin, upload its documents, and recreate each
+supervisor with an assigned semester. Dates are informational. Archive a semester to disable
+all conversation mutations while retaining history and cited-file downloads. Moving a supervisor
+shows only their own history in the destination semester; returning restores the original history.
+
+Admin semester routes are under `/api/v1/admin/semesters`: list/create, get/edit/archive,
+`/{id}/files` for upload/list, `/{id}/files/{file_id}` for soft deletion,
+`/{id}/supervisors` for listing and atomic assignment via `supervisor_ids`, and
+`/{id}/supervisor-candidates` for eligible active accounts outside the destination.
+Supervisor creation requires `semester_id`; account and supervisor responses expose semester details.
+Conversation creation accepts `{}` and messages accept `{ "content": "..." }`.
+Project routes and attachment selection/association routes are removed.
+
+Soft-deleted files retain their objects/chunks and saved citation excerpts, but are excluded
+from future retrieval and downloads. Supervisors may download only cited, non-deleted files
+in their current semester through authenticated `/api/v1/files/{id}/download` requests.

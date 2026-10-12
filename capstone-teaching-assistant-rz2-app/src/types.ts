@@ -11,8 +11,8 @@ export interface User {
   fullName: string;
   email: string;
   phone: string;
-  teachingYear: string;
-  teachingSemester: string;
+  semester?: Semester;
+  semesterId?: string;
   faculty: string;
   role: UserRole;
   status: UserStatus;
@@ -37,7 +37,6 @@ export interface AttachedFile {
   size: number; // in bytes
   type: string; // mime or extension e.g. 'image/png', 'application/pdf', 'code', etc.
   uploadedAt: string;
-  projectIds?: string[]; // empty or undefined means 'Uncategorised'
   dataUrl?: string; // for thumbnail / preview
   isPreviewLoading?: boolean;
   previewError?: string;
@@ -51,7 +50,6 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string; // ISO format
-  attachedFiles?: AttachedFile[];
   references?: MessageReference[];
 }
 
@@ -64,22 +62,38 @@ export interface MessageReference {
 export interface Conversation {
   id: string;
   title: string;
-  projectId?: string | null;
+  semesterId: string;
   createdAt: string;
   updatedAt: string;
   messages: Message[];
 }
 
-export interface Project {
+export interface Semester {
   id: string;
   name: string;
-  instructions?: string;
-  createdAt: string;
-  updatedAt: string;
-  color?: string;
+  year: number;
+  start_date: string;
+  end_date: string;
+  deleted_at: string | null;
+  created_at?: string;
+  updated_at?: string;
+  file_count?: number;
+  supervisor_count?: number;
+  ready_file_count?: number;
 }
+
+export type SemesterInput = Pick<Semester, 'name' | 'year' | 'start_date' | 'end_date'>;
+export interface SemesterSupervisor {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  semester: Semester;
+}
+export interface Page<T> { items: T[]; total: number; page: number; page_size: number; }
 
 export type ThemeMode = 'system' | 'dark' | 'light';
 
-export type AdminActiveView = 'supervisors' | 'faculties';
-export type SupervisorActiveView = 'chat' | 'library';
+export type AdminActiveView = 'supervisors' | 'faculties' | 'semesters';
+export type SupervisorActiveView = 'chat';

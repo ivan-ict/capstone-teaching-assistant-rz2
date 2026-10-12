@@ -12,8 +12,8 @@ from pydantic import (
     model_validator,
 )
 
-from app.common.db_models import AccountStatus, TeachingSemester
-from app.common.security import MAX_PASSWORD_LENGTH
+from app.common.db_models import AccountStatus
+from app.modules.semesters.semester_model import SemesterSummaryDTO
 
 SupervisorName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
@@ -25,14 +25,12 @@ class SupervisorCreateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: SupervisorName
-    password: str = Field(min_length=9, max_length=MAX_PASSWORD_LENGTH)
     first_name: SupervisorName
     last_name: SupervisorName
     email: EmailStr = Field(max_length=320)
     phone: SupervisorPhone | None = None
     faculty_id: UUID
-    teaching_year: int | None = Field(default=None, ge=2000, le=2100)
-    teaching_semester: TeachingSemester | None = None
+    semester_id: UUID
 
     @field_validator("phone")
     @classmethod
@@ -46,8 +44,7 @@ class SupervisorProfileDTO(BaseModel):
     email: str
     phone: str | None = None
     faculty_id: UUID
-    teaching_year: int | None = None
-    teaching_semester: TeachingSemester | None = None
+    semester: SemesterSummaryDTO
 
 
 class SupervisorCreateResponseDTO(BaseModel):
@@ -69,8 +66,7 @@ class SupervisorListItemDTO(BaseModel):
     last_name: str
     email: str
     phone: str | None = None
-    teaching_year: int | None = None
-    teaching_semester: TeachingSemester | None = None
+    semester: SemesterSummaryDTO
     status: AccountStatus
     faculty: SupervisorFacultySummaryDTO
     created_at: datetime
@@ -99,8 +95,6 @@ class SupervisorUpdateDTO(BaseModel):
     email: EmailStr | None = Field(default=None, max_length=320)
     phone: SupervisorPhone | None = None
     faculty_id: UUID | None = None
-    teaching_year: int | None = Field(default=None, ge=2000, le=2100)
-    teaching_semester: TeachingSemester | None = None
 
     @field_validator("phone")
     @classmethod
@@ -134,12 +128,7 @@ class SupervisorStatusResponseDTO(BaseModel):
     status: AccountStatus
 
 
-class SupervisorPasswordUpdateDTO(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    new_password: str = Field(min_length=9, max_length=MAX_PASSWORD_LENGTH)
-
-
-class SupervisorPasswordUpdateResponseDTO(BaseModel):
+class SupervisorPasswordResetResponseDTO(BaseModel):
     id: UUID
+    email: str
     message: str

@@ -5,8 +5,11 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.auth import CurrentUser, get_current_user
 from app.common.config import Settings
-from app.common.db_models import DocumentChunk, File
+from app.common.db_models import AccountStatus, DocumentChunk, File, UserRole
+from app.main import app
+from tests.conftest import DEV_SEMESTER_ID, DEV_SUPERVISOR_ID
 
 
 class FakeStorageClient:
@@ -59,7 +62,7 @@ async def test_file_upload_list_detail_download_and_delete(
     monkeypatch.setattr("app.modules.files.file_service.OllamaEmbeddingProvider", FakeEmbeddings)
 
     upload_response = await client.post(
-        "/api/v1/files",
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files",
         files={"file": ("handbook.txt", b"Capstone handbook guidance for teams.", "text/plain")},
     )
 
@@ -75,11 +78,13 @@ async def test_file_upload_list_detail_download_and_delete(
     )
     assert len(chunks) == 1
 
-    list_response = await client.get("/api/v1/files")
+    list_response = await client.get(f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files")
     assert list_response.status_code == 200
     assert list_response.json()["total"] == 1
 
-    overlong_search_response = await client.get("/api/v1/files", params={"search": "a" * 101})
+    overlong_search_response = await client.get(
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files", params={"search": "a" * 101}
+    )
     assert overlong_search_response.status_code == 422
     assert overlong_search_response.json()["error"]["code"] == "VALIDATION_ERROR"
 
@@ -98,7 +103,9 @@ async def test_file_upload_list_detail_download_and_delete(
     assert download_response.headers["content-type"].startswith("text/plain")
     assert "handbook.txt" in download_response.headers["content-disposition"]
 
-    delete_response = await client.delete(f"/api/v1/files/{uploaded['id']}")
+    delete_response = await client.delete(
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files/{uploaded['id']}"
+    )
     assert delete_response.status_code == 204
 
     deleted_chunks = list(
@@ -106,18 +113,18 @@ async def test_file_upload_list_detail_download_and_delete(
             select(DocumentChunk).where(DocumentChunk.file_id == UUID(uploaded["id"]))
         )
     )
-    assert all(chunk.deleted_at is not None for chunk in deleted_chunks)
+    assert all(chunk.deleted_at is None for chunk in deleted_chunks)
 
 
 @pytest.mark.asyncio
-async def test_file_content_preview_and_bulk_delete(
+async def test_file_content_preview_and_soft_delete(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("app.modules.files.file_service.ObjectStorageClient", FakeStorageClient)
     monkeypatch.setattr("app.modules.files.file_service.OllamaEmbeddingProvider", FakeEmbeddings)
 
     upload_response = await client.post(
-        "/api/v1/files",
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files",
         files={"file": ("handbook.txt", b"Capstone handbook guidance for teams.", "text/plain")},
     )
     file_id = upload_response.json()["id"]
@@ -126,10 +133,10 @@ async def test_file_content_preview_and_bulk_delete(
     assert content_response.status_code == 200
     assert content_response.json()["content"] == "Capstone handbook guidance for teams."
 
-    delete_response = await client.post("/api/v1/files/bulk-delete", json={"file_ids": [file_id]})
-    assert delete_response.status_code == 200
-    assert delete_response.json()["deleted_ids"] == [file_id]
-    assert delete_response.json()["failed_ids"] == []
+    delete_response = await client.delete(
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files/{file_id}"
+    )
+    assert delete_response.status_code == 204
 
 
 @pytest.mark.asyncio
@@ -148,12 +155,12 @@ async def test_file_upload_rejects_oversized_body_before_persisting(
     client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "app.modules.files.file_router.get_settings",
+        "app.modules.semesters.semester_router.get_settings",
         lambda: Settings(max_upload_bytes=4),
     )
 
     response = await client.post(
-        "/api/v1/files",
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files",
         files={"file": ("too-large.txt", b"too large", "text/plain")},
     )
 
@@ -175,7 +182,7 @@ async def test_image_upload_saves_generated_description_as_chunk(
     )
 
     response = await client.post(
-        "/api/v1/files",
+        f"/api/v1/admin/semesters/{DEV_SEMESTER_ID}/files",
         files={"file": ("architecture.png", b"image bytes", "image/png")},
     )
 
@@ -190,3 +197,15 @@ async def test_image_upload_saves_generated_description_as_chunk(
     assert [chunk.content for chunk in chunks] == [
         "Architecture diagram showing a browser connected to the API."
     ]
+
+
+@pytest.fixture(autouse=True)
+async def file_admin(client):
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        id=DEV_SUPERVISOR_ID,
+        username="test-admin",
+        role=UserRole.ADMIN,
+        status=AccountStatus.ACTIVE,
+    )
+    yield
+    app.dependency_overrides.pop(get_current_user, None)

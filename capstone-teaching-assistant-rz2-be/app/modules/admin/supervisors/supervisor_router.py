@@ -6,14 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.auth import CurrentUser, get_current_admin
 from app.common.database import get_db_session
-from app.common.db_models import AccountStatus, TeachingSemester
+from app.common.db_models import AccountStatus
+from app.common.email import EmailSender, get_email_sender
 from app.modules.admin.supervisors.supervisor_model import (
     SupervisorCreateDTO,
     SupervisorCreateResponseDTO,
     SupervisorDetailDTO,
     SupervisorListDTO,
-    SupervisorPasswordUpdateDTO,
-    SupervisorPasswordUpdateResponseDTO,
+    SupervisorPasswordResetResponseDTO,
     SupervisorStatusResponseDTO,
     SupervisorStatusUpdateDTO,
     SupervisorUpdateDTO,
@@ -24,6 +24,7 @@ from app.modules.admin.supervisors.supervisor_service import SupervisorService
 supervisor_router = APIRouter(prefix="/admin/supervisors", tags=["Admin Supervisors"])
 CurrentAdminDependency = Annotated[CurrentUser, Depends(get_current_admin)]
 DatabaseSessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
+EmailSenderDependency = Annotated[EmailSender, Depends(get_email_sender)]
 SEARCH_MAX_LENGTH = 100
 
 
@@ -36,8 +37,9 @@ async def create_supervisor(
     payload: SupervisorCreateDTO,
     _current_admin: CurrentAdminDependency,
     session: DatabaseSessionDependency,
+    email_sender: EmailSenderDependency,
 ):
-    return await SupervisorService(session).create_supervisor(payload)
+    return await SupervisorService(session).create_supervisor(payload, email_sender)
 
 
 @supervisor_router.get("", response_model=SupervisorListDTO)
@@ -47,8 +49,7 @@ async def list_supervisors(
     search: Annotated[str | None, Query(max_length=SEARCH_MAX_LENGTH)] = None,
     faculty_id: Annotated[UUID | None, Query()] = None,
     status_filter: Annotated[AccountStatus | None, Query(alias="status")] = None,
-    teaching_year: Annotated[int | None, Query(ge=2000, le=2100)] = None,
-    teaching_semester: Annotated[TeachingSemester | None, Query()] = None,
+    semester_id: Annotated[UUID | None, Query()] = None,
     sort_by: Annotated[str, Query()] = "created_at",
     sort_order: Annotated[str, Query()] = "desc",
     page: Annotated[int, Query(ge=1)] = 1,
@@ -58,8 +59,7 @@ async def list_supervisors(
         search,
         faculty_id,
         status_filter,
-        teaching_year,
-        teaching_semester,
+        semester_id,
         sort_by,
         sort_order,
         page,
@@ -96,17 +96,17 @@ async def update_supervisor_status(
     return await SupervisorService(session).update_status(supervisor_id, payload.status)
 
 
-@supervisor_router.put(
-    "/{supervisor_id}/password",
-    response_model=SupervisorPasswordUpdateResponseDTO,
+@supervisor_router.post(
+    "/{supervisor_id}/password-reset",
+    response_model=SupervisorPasswordResetResponseDTO,
 )
 async def reset_supervisor_password(
     supervisor_id: UUID,
-    payload: SupervisorPasswordUpdateDTO,
     _current_admin: CurrentAdminDependency,
     session: DatabaseSessionDependency,
+    email_sender: EmailSenderDependency,
 ):
-    return await SupervisorService(session).reset_password(supervisor_id, payload.new_password)
+    return await SupervisorService(session).reset_password(supervisor_id, email_sender)
 
 
 @supervisor_router.delete("/{supervisor_id}", status_code=status.HTTP_204_NO_CONTENT)

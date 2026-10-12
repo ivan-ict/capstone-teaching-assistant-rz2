@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.db_models import AccountStatus, Faculty, SupervisorProfile, User, UserRole
 from app.common.security import hash_password
 from app.modules.admin.supervisors.supervisor_repository import SupervisorRepository
+from tests.conftest import DEV_SEMESTER_ID
 
 
 @pytest.mark.asyncio
@@ -23,6 +24,7 @@ async def test_create_user_and_profile_flushes_user_before_profile(session: Asyn
         status=AccountStatus.ACTIVE,
     )
     profile = SupervisorProfile(
+        semester_id=DEV_SEMESTER_ID,
         user_id=user_id,
         faculty_id=faculty.id,
         first_name="Test",
