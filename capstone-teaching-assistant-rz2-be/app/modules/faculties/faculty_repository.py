@@ -31,8 +31,13 @@ class FacultyRepository:
             filters.append(Faculty.is_active.is_(True))
         if search:
             search_filter = f"%{search}%"
-            filters.append(or_(Faculty.name.ilike(search_filter), Faculty.code.ilike(search_filter)))
-        total = await self.session.scalar(select(func.count()).select_from(Faculty).where(*filters)) or 0
+            filters.append(
+                or_(Faculty.name.ilike(search_filter), Faculty.code.ilike(search_filter))
+            )
+        total = (
+            await self.session.scalar(select(func.count()).select_from(Faculty).where(*filters))
+            or 0
+        )
         query = (
             select(Faculty, func.count(SupervisorProfile.id))
             .outerjoin(
@@ -54,9 +59,13 @@ class FacultyRepository:
         return await self.session.scalar(query)
 
     async def supervisor_count(self, faculty_id: UUID) -> int:
-        query = select(func.count()).select_from(SupervisorProfile).where(
-            SupervisorProfile.faculty_id == faculty_id,
-            SupervisorProfile.deleted_at.is_(None),
+        query = (
+            select(func.count())
+            .select_from(SupervisorProfile)
+            .where(
+                SupervisorProfile.faculty_id == faculty_id,
+                SupervisorProfile.deleted_at.is_(None),
+            )
         )
         return await self.session.scalar(query) or 0
 

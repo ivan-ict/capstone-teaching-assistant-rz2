@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   User,
   Faculty,
-  Project,
+  Semester,
   Conversation,
   AttachedFile,
   Message,
@@ -13,6 +13,9 @@ import {
 import { ApiClient, ApiClientError, mapAccount } from '../api/client';
 
 interface AppContextType {
+  api: ApiClient;
+  semesters: Semester[];
+  refreshAdminData: () => Promise<void>;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
   isDark: boolean;
@@ -21,63 +24,40 @@ interface AppContextType {
   logout: () => Promise<void>;
   updateCurrentUser: (userData: Partial<User>) => void;
   changeCurrentUserPassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+  requestPasswordReset: (identifier: string) => Promise<{ success: boolean; message: string }>;
   activeAdminView: AdminActiveView;
   setActiveAdminView: (view: AdminActiveView) => void;
   supervisors: User[];
   faculties: Faculty[];
-  addSupervisor: (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status'>) => Promise<{ success: boolean; message?: string }>;
+  addSupervisor: (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status' | 'password'>) => Promise<{ success: boolean; message?: string }>;
   updateSupervisor: (id: string, data: Partial<User>) => Promise<{ success: boolean; message?: string }>;
   suspendSupervisor: (id: string) => Promise<void>;
   activateSupervisor: (id: string) => Promise<void>;
-  changeSupervisorPassword: (id: string, newPassword: string) => Promise<boolean>;
+  resetSupervisorPassword: (id: string) => Promise<{ success: boolean; message: string }>;
   deleteSupervisor: (id: string) => Promise<void>;
   addFaculty: (faculty: Omit<Faculty, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; message?: string }>;
   updateFaculty: (id: string, faculty: Partial<Faculty>) => Promise<{ success: boolean; message?: string }>;
   deleteFaculty: (id: string) => Promise<boolean>;
   activeSupervisorView: SupervisorActiveView;
   setActiveSupervisorView: (view: SupervisorActiveView) => void;
-  projects: Project[];
   conversations: Conversation[];
   searchConversations: (query: string) => Promise<Conversation[]>;
   activeConversationId: string | null;
   setActiveConversationId: (id: string | null) => void;
   activeConversation: Conversation | null;
-  libraryFiles: AttachedFile[];
   isSidebarCollapsed: boolean;
   setIsSidebarCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
-  expandedProjectIds: string[];
-  toggleProjectExpanded: (projectId: string) => void;
-  createProject: (name: string, instructions?: string) => Promise<Project | null>;
-  updateProject: (id: string, name: string, instructions?: string) => Promise<{ success: boolean; message?: string }>;
-  deleteProject: (id: string) => Promise<void>;
-  createConversation: (projectId?: string | null, customTitle?: string) => Promise<Conversation | null>;
+  createConversation: () => Promise<Conversation | null>;
   renameConversation: (id: string, newTitle: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
-  moveConversationToProject: (conversationId: string, projectId: string | null) => Promise<void>;
-  sendMessage: (content: string, attachedFiles?: AttachedFile[]) => Promise<boolean>;
+  sendMessage: (content: string) => Promise<boolean>;
   isGeneratingResponse: boolean;
-  uploadFiles: (files: FileList | File[]) => Promise<AttachedFile[]>;
-  deleteFile: (fileId: string) => Promise<void>;
-  deleteFilesBulk: (fileIds: string[]) => Promise<void>;
-  removeFileFromProject: (projectId: string, fileId: string) => Promise<{ success: boolean; message?: string }>;
   downloadFile: (file: AttachedFile) => Promise<void>;
   isSearchModalOpen: boolean;
   setIsSearchModalOpen: (open: boolean) => void;
-  isCreateProjectModalOpen: boolean;
-  setIsCreateProjectModalOpen: (open: boolean) => void;
-  pendingMoveConversationId: string | null;
-  setPendingMoveConversationId: (id: string | null) => void;
-  projectToEdit: Project | null;
-  setProjectToEdit: (proj: Project | null) => void;
   isProfileModalOpen: boolean;
   setIsProfileModalOpen: (open: boolean) => void;
-  isAddFromLibraryOpen: boolean;
-  setIsAddFromLibraryOpen: (open: boolean) => void;
   onSelectLibraryFilesForChat?: (files: AttachedFile[]) => void;
-  setOnSelectLibraryFilesForChat: (callback: ((files: AttachedFile[]) => void) | undefined) => void;
-  pendingChatAttachments: AttachedFile[];
-  setPendingChatAttachments: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
-  startConversationWithFiles: (files: AttachedFile[], projectId?: string | null) => Promise<void>;
   fileToPreview: AttachedFile | null;
   setFileToPreview: (file: AttachedFile | null) => void;
   previewFile: (file: AttachedFile) => void;
@@ -131,23 +111,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [supervisors, setSupervisors] = useState<User[]>([]);
   const [faculties, setFaculties] = useState<Faculty[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const scope = useRef<string | null>(null);
+  const epoch = useRef(0);
+  const refreshSequence = useRef(0);
+  const streamController = useRef<AbortController | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [libraryFiles, setLibraryFiles] = useState<AttachedFile[]>([]);
   const [activeAdminView, setActiveAdminView] = useState<AdminActiveView>('supervisors');
   const [activeSupervisorView, setActiveSupervisorView] = useState<SupervisorActiveView>('chat');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [isGeneratingResponse, setIsGeneratingResponse] = useState<boolean>(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState<boolean>(false);
-  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState<boolean>(false);
-  const [pendingMoveConversationId, setPendingMoveConversationId] = useState<string | null>(null);
-  const [projectToEdit, setProjectToEditState] = useState<Project | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
-  const [isAddFromLibraryOpen, setIsAddFromLibraryOpen] = useState<boolean>(false);
-  const [onSelectLibraryFilesForChat, setOnSelectLibraryFilesForChat] = useState<((files: AttachedFile[]) => void) | undefined>(undefined);
-  const [pendingChatAttachments, setPendingChatAttachments] = useState<AttachedFile[]>([]);
   const [fileToPreview, setFileToPreview] = useState<AttachedFile | null>(null);
 
   useEffect(() => {
@@ -182,12 +158,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const refreshAdminData = useCallback(async () => {
-    const [nextFaculties, active, inactive] = await Promise.all([
+    const [nextFaculties, active, inactive, nextSemesters] = await Promise.all([
       api.listAdminFaculties(),
       api.listSupervisors({ status: 'ACTIVE' }),
       api.listSupervisors({ status: 'INACTIVE' }),
+      api.activeSemesters(),
     ]);
     setFaculties(nextFaculties);
+    setSemesters(nextSemesters);
     setSupervisors([...active, ...inactive].map((user, index) => ({
       ...user,
       avatarColor: avatarColors[index % avatarColors.length],
@@ -195,55 +173,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [api]);
 
   const refreshSupervisorData = useCallback(async () => {
-    const [nextProjects, nextConversations, nextFiles] = await Promise.all([
-      api.listProjects(),
-      api.listConversations(),
-      api.listFiles(),
-    ]);
-    const projectFiles = await Promise.all(nextProjects.map(project => api.listProjectFiles(project.id).catch(() => [])));
-    const projectIdsByFile = new Map<string, string[]>();
-    projectFiles.forEach((files, index) => {
-      files.forEach(file => {
-        const projectIds = projectIdsByFile.get(file.id) || [];
-        projectIdsByFile.set(file.id, [...projectIds, nextProjects[index].id]);
-      });
-    });
-
-    setProjects(nextProjects);
-    setExpandedProjectIds(prev => prev.length ? prev.filter(id => nextProjects.some(project => project.id === id)) : nextProjects.map(project => project.id));
-    setLibraryFiles(nextFiles.map(file => ({ ...file, projectIds: projectIdsByFile.get(file.id) || [] })));
-    setConversations(prev => {
-      const messageMap = new Map(prev.map(conversation => [conversation.id, conversation.messages]));
-      return nextConversations.map(conversation => ({
-        ...conversation,
-        messages: messageMap.get(conversation.id) || [],
-      }));
-    });
-    setActiveConversationId(prev => prev && nextConversations.some(conversation => conversation.id === prev) ? prev : nextConversations[0]?.id || null);
+    const sequence = ++refreshSequence.current;
+    const startedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    const user = mapAccount(await api.getAccount());
+    if (sequence !== refreshSequence.current || startedToken !== localStorage.getItem(STORAGE_KEYS.TOKEN)) return null;
+    const nextScope = `${user.id}:${user.semester?.id}:${user.semester?.deleted_at || ''}`;
+    if (scope.current !== nextScope) {
+      epoch.current++;
+      scope.current = nextScope;
+      streamController.current?.abort();
+      setIsGeneratingResponse(false);
+      setConversations([]);
+      setActiveConversationId(null);
+      setIsSearchModalOpen(false);
+      setFileToPreview(null);
+    }
+    setCurrentUser(user);
+    const version = epoch.current;
+    const nextConversations = await api.listConversations();
+    if (version !== epoch.current || sequence !== refreshSequence.current) return null;
+    setConversations(prev => nextConversations.map(conversation => ({ ...conversation, messages: prev.find(c => c.id === conversation.id)?.messages || [] })));
+    setActiveConversationId(prev => prev && nextConversations.some(c => c.id === prev) ? prev : null);
+    return user;
   }, [api]);
+
+  const ensureWritable = async () => {
+    const oldScope = scope.current;
+    const user = await refreshSupervisorData();
+    if (!user || oldScope !== scope.current) throw new Error('Your semester assignment changed. Please select a conversation or start a new one.');
+    if (!user.semester || user.semester.deleted_at) throw new Error('This semester is archived and read-only.');
+  };
+
+  useEffect(() => {
+    if (!token || currentUser?.role !== 'supervisor') return;
+    const refresh = () => { refreshSupervisorData().catch(error => showError(error, 'Could not refresh semester.')); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [token, currentUser?.role, refreshSupervisorData, showError]);
 
   const loadConversationMessages = useCallback(async (conversationId: string) => {
     try {
+      const version = epoch.current;
       const messages = await api.listConversationMessages(conversationId);
+      if (version !== epoch.current) return;
       setConversations(prev => prev.map(conversation => conversation.id === conversationId ? { ...conversation, messages } : conversation));
     } catch (error) {
       showError(error, 'Could not load conversation messages.');
+      if (error instanceof ApiClientError && [404, 409].includes(error.status)) await refreshSupervisorData();
     }
-  }, [api, showError]);
+  }, [api, showError, refreshSupervisorData]);
 
   const searchConversations = useCallback(async (query: string): Promise<Conversation[]> => {
     if (!query.trim()) return conversations;
     try {
+      const version = epoch.current;
       const results = await api.searchConversations(query.trim());
+      if (version !== epoch.current) return [];
       return results.map(result => ({
         ...result,
         messages: conversations.find(conversation => conversation.id === result.id)?.messages || [],
       }));
     } catch (error) {
       showError(error, 'Could not search conversations.');
+      if (error instanceof ApiClientError && [404, 409].includes(error.status)) await refreshSupervisorData();
       return [];
     }
-  }, [api, conversations, showError]);
+  }, [api, conversations, showError, refreshSupervisorData]);
 
   useEffect(() => {
     if (!token) return;
@@ -307,12 +302,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = async () => {
+    epoch.current++;
+    refreshSequence.current++;
+    scope.current = null;
+    streamController.current?.abort();
+    setFileToPreview(null);
+    setIsSearchModalOpen(false);
     await api.logout();
     setCurrentUser(null);
     setSupervisors([]);
-    setProjects([]);
     setConversations([]);
-    setLibraryFiles([]);
     setActiveConversationId(null);
     setIsProfileModalOpen(false);
   };
@@ -323,15 +322,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const changeCurrentUserPassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
     try {
+      // The server revokes the current token; the caller signs out after showing the message.
       const response = await api.changePassword(currentPassword, newPassword);
-      await logout();
       return { success: true, message: `${response.message} Please sign in again.` };
     } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : 'Password update failed.' };
     }
   };
 
-  const addSupervisor = async (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status'>) => {
+  const requestPasswordReset = async (identifier: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.forgotPassword(identifier.trim());
+      return { success: true, message: response.message };
+    } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : 'Could not request a password reset.' };
+    }
+  };
+
+  const addSupervisor = async (data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status' | 'password'>) => {
     try {
       await api.createSupervisor(data, faculties);
       await refreshAdminData();
@@ -373,13 +381,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const changeSupervisorPassword = async (id: string, newPassword: string): Promise<boolean> => {
+  const resetSupervisorPassword = async (id: string): Promise<{ success: boolean; message: string }> => {
     try {
-      await api.resetSupervisorPassword(id, newPassword);
-      return true;
+      const response = await api.resetSupervisorPassword(id);
+      return { success: true, message: response.message };
     } catch (error) {
-      showError(error, 'Could not reset supervisor password.');
-      return false;
+      return { success: false, message: error instanceof Error ? error.message : 'Could not reset supervisor password.' };
     }
   };
 
@@ -423,99 +430,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const toggleProjectExpanded = (projectId: string) => {
-    setExpandedProjectIds(prev => prev.includes(projectId) ? prev.filter(id => id !== projectId) : [...prev, projectId]);
-  };
-
-  const createProject = async (name: string, instructions?: string): Promise<Project | null> => {
+  const createConversation = async (): Promise<Conversation | null> => {
     try {
-      const project = await api.createProject(name.trim(), instructions);
-      setProjects(prev => [project, ...prev]);
-      setExpandedProjectIds(prev => [...prev, project.id]);
-      if (pendingMoveConversationId) {
-        await moveConversationToProject(pendingMoveConversationId, project.id);
-        setPendingMoveConversationId(null);
-      }
-      return project;
-    } catch (error) {
-      showError(error, 'Could not create project.');
-      return null;
-    }
-  };
-
-  const updateProject = async (id: string, name: string, instructions?: string) => {
-    try {
-      await api.updateProject(id, name.trim(), instructions);
-      await refreshSupervisorData();
-      return { success: true };
-    } catch (error) {
-      return { success: false, message: error instanceof Error ? error.message : 'Could not update project.' };
-    }
-  };
-
-  const deleteProject = async (id: string) => {
-    try {
-      await api.deleteProject(id);
-      await refreshSupervisorData();
-    } catch (error) {
-      showError(error, 'Could not delete project.');
-    }
-  };
-
-  const createConversation = async (projectId: string | null = null, customTitle?: string): Promise<Conversation | null> => {
-    try {
-      const conversation = await api.createConversation(projectId);
-      let nextConversation = conversation;
-      if (customTitle) {
-        await api.renameConversation(conversation.id, customTitle);
-        nextConversation = { ...conversation, title: customTitle };
-      }
-      setConversations(prev => [nextConversation, ...prev]);
-      setActiveConversationId(nextConversation.id);
-      setActiveSupervisorView('chat');
-      return nextConversation;
+      await ensureWritable();
+      const version = epoch.current;
+      const conversation = await api.createConversation();
+      if (version !== epoch.current) return null;
+      setConversations(prev => [conversation, ...prev]);
+      setActiveConversationId(conversation.id);
+      return conversation;
     } catch (error) {
       showError(error, 'Could not create conversation.');
+      await refreshSupervisorData();
       return null;
-    }
-  };
-
-  const startConversationWithFiles = async (files: AttachedFile[], projectId?: string | null) => {
-    if (!files.length) return;
-    const unavailableFiles = files.filter(file => file.processingStatus && file.processingStatus !== 'READY');
-    if (unavailableFiles.length) {
-      alert(`These files are not ready for chat: ${unavailableFiles.map(file => file.name).join(', ')}.`);
-      return;
-    }
-    let targetProjectId = projectId;
-    if (targetProjectId === undefined) {
-      const distinctProjectIds = Array.from(new Set(files.flatMap(file => file.projectIds || [])));
-      targetProjectId = distinctProjectIds.length === 1 ? distinctProjectIds[0] : null;
-    }
-    const titleNames = files.map(file => file.name).join(', ');
-    const title = `Analysis: ${titleNames.length > 30 ? `${titleNames.slice(0, 30)}...` : titleNames}`;
-    const conversation = await createConversation(targetProjectId || null, title);
-    if (!conversation) return;
-    try {
-      await api.associateConversationFiles(conversation.id, files.map(file => file.id));
-      setPendingChatAttachments(files);
-    } catch (error) {
-      showError(error, 'Could not attach files to the conversation.');
     }
   };
 
   const renameConversation = async (id: string, newTitle: string) => {
     if (!newTitle.trim()) return;
     try {
+      await ensureWritable();
       await api.renameConversation(id, newTitle.trim());
       setConversations(prev => prev.map(conversation => conversation.id === id ? { ...conversation, title: newTitle.trim(), updatedAt: new Date().toISOString() } : conversation));
     } catch (error) {
       showError(error, 'Could not rename conversation.');
+      if (error instanceof ApiClientError && [404, 409].includes(error.status)) await refreshSupervisorData();
     }
   };
 
   const deleteConversation = async (id: string) => {
     try {
+      await ensureWritable();
       await api.deleteConversation(id);
       setConversations(prev => {
         const remaining = prev.filter(conversation => conversation.id !== id);
@@ -526,173 +471,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     } catch (error) {
       showError(error, 'Could not delete conversation.');
-    }
-  };
-
-  const moveConversationToProject = async (conversationId: string, projectId: string | null) => {
-    try {
-      await api.moveConversation(conversationId, projectId);
-      setConversations(prev => prev.map(conversation => conversation.id === conversationId ? { ...conversation, projectId, updatedAt: new Date().toISOString() } : conversation));
-      if (projectId) {
-        setExpandedProjectIds(prev => prev.includes(projectId) ? prev : [...prev, projectId]);
-      }
-      await refreshSupervisorData();
-    } catch (error) {
-      showError(error, 'Could not move conversation.');
+      if (error instanceof ApiClientError && [404, 409].includes(error.status)) await refreshSupervisorData();
     }
   };
 
   const activeConversation = conversations.find(conversation => conversation.id === activeConversationId) || null;
 
-  const sendMessage = async (content: string, attachedFiles: AttachedFile[] = []) => {
-    const messageFiles = attachedFiles.length ? attachedFiles : pendingChatAttachments;
+  const sendMessage = async (content: string) => {
     const messageContent = content.trim();
-    if (!messageContent && !messageFiles.length) {
-      alert('Please enter a message or attach files.');
-      return false;
-    }
-    const unavailableFiles = messageFiles.filter(file => file.processingStatus && file.processingStatus !== 'READY');
-    if (unavailableFiles.length) {
-      alert(`These files are not ready for chat: ${unavailableFiles.map(file => file.name).join(', ')}.`);
-      return false;
-    }
-    let targetConversation = activeConversation;
-    if (!targetConversation) {
-      const titleSeed = messageContent || messageFiles.map(file => file.name).join(', ');
-      targetConversation = await createConversation(null, titleSeed.slice(0, 36) + (titleSeed.length > 36 ? '...' : ''));
-      if (!targetConversation) return false;
-    }
-
-    let messageCreated = false;
-    setIsGeneratingResponse(true);
+    if (!messageContent || isGeneratingResponse) return false;
+    let target = activeConversation;
+    let created = false;
+    let version = epoch.current;
     try {
-      const response = await api.createMessage(targetConversation.id, messageContent, messageFiles.map(file => file.id));
-      messageCreated = true;
+      await ensureWritable();
+      if (!target) target = await createConversation();
+      if (!target) return false;
+      version = epoch.current;
+      setIsGeneratingResponse(true);
+      const controller = new AbortController();
+      streamController.current = controller;
+      const response = await api.createMessage(target.id, messageContent);
+      if (version !== epoch.current) return false;
+      created = true;
       const now = new Date().toISOString();
-      const userMessage: Message = {
-        id: response.user_message.id,
-        role: 'user',
-        content: response.user_message.content,
-        timestamp: now,
-        attachedFiles: messageFiles.length ? messageFiles : undefined,
-      };
-      const assistantMessage: Message = {
-        id: response.assistant_message.id,
-        role: 'assistant',
-        content: '',
-        timestamp: now,
-      };
-      setConversations(prev => prev.map(conversation => {
-        if (conversation.id !== targetConversation!.id) return conversation;
-        return {
-          ...conversation,
-          title: response.conversation_title,
-          updatedAt: now,
-          messages: [...conversation.messages, userMessage],
-        };
-      }));
-      setPendingChatAttachments([]);
-      await api.streamMessage(response.stream_url, tokenDelta => {
-        setConversations(prev => prev.map(conversation => conversation.id === targetConversation!.id
-          ? {
-              ...conversation,
-              messages: conversation.messages.some(message => message.id === assistantMessage.id)
-                ? conversation.messages.map(message => message.id === assistantMessage.id ? { ...message, content: message.content + tokenDelta } : message)
-                : [...conversation.messages, { ...assistantMessage, content: tokenDelta }],
-            }
-          : conversation));
-      });
-      await loadConversationMessages(targetConversation.id);
+      const userMessage: Message = { id: response.user_message.id, role: 'user', content: response.user_message.content, timestamp: now };
+      const assistantMessage: Message = { id: response.assistant_message.id, role: 'assistant', content: '', timestamp: now };
+      setConversations(prev => prev.map(c => c.id === target!.id ? { ...c, title: response.conversation_title, updatedAt: now, messages: [...c.messages, userMessage, assistantMessage] } : c));
+      await api.streamMessage(response.stream_url, delta => {
+        if (version !== epoch.current) return;
+        setConversations(prev => prev.map(c => c.id === target!.id ? { ...c, messages: c.messages.map(m => m.id === assistantMessage.id ? { ...m, content: m.content + delta } : m) } : c));
+      }, controller.signal);
+      if (version === epoch.current) await loadConversationMessages(target.id);
     } catch (error) {
-      showError(error, 'Could not send message.');
-      await loadConversationMessages(targetConversation.id);
+      if (version === epoch.current) {
+        showError(error, 'Could not send message.');
+        await refreshSupervisorData();
+        if (target && version === epoch.current) await loadConversationMessages(target.id);
+      }
     } finally {
-      setIsGeneratingResponse(false);
+      if (version === epoch.current) setIsGeneratingResponse(false);
     }
-    return messageCreated;
-  };
-
-  const uploadFiles = async (files: FileList | File[]): Promise<AttachedFile[]> => {
-    const uploaded: AttachedFile[] = [];
-    for (const file of Array.from(files)) {
-      try {
-        const apiFile = await api.uploadFile(file);
-        uploaded.push(apiFile);
-      } catch (error) {
-        showError(error, `Could not upload ${file.name}.`);
-      }
-    }
-    if (uploaded.length) {
-      setLibraryFiles(prev => [...uploaded, ...prev]);
-    }
-    return uploaded;
-  };
-
-  const deleteFile = async (fileId: string) => {
-    try {
-      await api.deleteFile(fileId);
-      setLibraryFiles(prev => prev.filter(file => file.id !== fileId));
-      setConversations(prev => prev.map(conversation => ({
-        ...conversation,
-        messages: conversation.messages.map(message => ({
-          ...message,
-          attachedFiles: message.attachedFiles?.filter(file => file.id !== fileId),
-        })),
-      })));
-    } catch (error) {
-      showError(error, 'Could not delete file.');
-    }
-  };
-
-  const deleteFilesBulk = async (fileIds: string[]) => {
-    try {
-      const result = await api.deleteFilesBulk(fileIds);
-      setLibraryFiles(prev => prev.filter(file => !result.deletedIds.includes(file.id)));
-      setConversations(prev => prev.map(conversation => ({
-        ...conversation,
-        messages: conversation.messages.map(message => ({
-          ...message,
-          attachedFiles: message.attachedFiles?.filter(
-            file => !result.deletedIds.includes(file.id),
-          ),
-        })),
-      })));
-      if (result.failedIds.length) {
-        const failedNames = libraryFiles
-          .filter(file => result.failedIds.includes(file.id))
-          .map(file => file.name);
-        alert(`Could not delete: ${failedNames.join(', ') || result.failedIds.join(', ')}.`);
-      }
-    } catch (error) {
-      showError(error, 'Could not delete selected files.');
-    }
-  };
-
-  const removeFileFromProject = async (projectId: string, fileId: string) => {
-    const projectConversations = conversations.filter(conversation => conversation.projectId === projectId);
-    if (!projectConversations.length) {
-      return { success: false, message: 'This project has no conversations containing the file.' };
-    }
-    const results = await Promise.allSettled(
-      projectConversations.map(conversation => api.dissociateConversationFile(conversation.id, fileId)),
-    );
-    const removedCount = results.filter(result => result.status === 'fulfilled').length;
-    const unexpectedFailure = results.find(result =>
-      result.status === 'rejected'
-      && (!(result.reason instanceof ApiClientError) || result.reason.status !== 404)
-    );
-    await refreshSupervisorData();
-    if (unexpectedFailure?.status === 'rejected') {
-      return {
-        success: false,
-        message: unexpectedFailure.reason instanceof Error
-          ? unexpectedFailure.reason.message
-          : 'Could not remove file from project context.',
-      };
-    }
-    return removedCount > 0
-      ? { success: true }
-      : { success: false, message: 'The file was not associated with any loaded project conversation.' };
+    return created;
   };
 
   const downloadFile = async (file: AttachedFile) => {
@@ -739,31 +559,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } : current));
   }, [api]);
 
-  const setProjectToEdit = (project: Project | null) => {
-    setProjectToEditState(project);
-    if (project) {
-      api.listProjectFiles(project.id)
-        .then(files => {
-          setLibraryFiles(prev => {
-            const existing = new Map(prev.map(file => [file.id, file]));
-            files.forEach(file => {
-              const existingFile = existing.get(file.id);
-              const projectIds = Array.from(new Set([
-                ...(existingFile?.projectIds || file.projectIds || []),
-                project.id,
-              ]));
-              existing.set(file.id, { ...(existingFile || file), projectIds });
-            });
-            return Array.from(existing.values());
-          });
-        })
-        .catch(() => undefined);
-    }
-  };
-
   return (
     <AppContext.Provider
       value={{
+        api,
+        semesters,
+        refreshAdminData,
         themeMode,
         setThemeMode,
         isDark,
@@ -772,6 +573,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logout,
         updateCurrentUser,
         changeCurrentUserPassword,
+        requestPasswordReset,
         activeAdminView,
         setActiveAdminView,
         supervisors,
@@ -780,55 +582,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateSupervisor,
         suspendSupervisor,
         activateSupervisor,
-        changeSupervisorPassword,
+        resetSupervisorPassword,
         deleteSupervisor,
         addFaculty,
         updateFaculty,
         deleteFaculty,
         activeSupervisorView,
         setActiveSupervisorView,
-        projects,
         conversations,
         searchConversations,
         activeConversationId,
         setActiveConversationId,
         activeConversation,
-        libraryFiles,
         isSidebarCollapsed,
         setIsSidebarCollapsed,
-        expandedProjectIds,
-        toggleProjectExpanded,
-        createProject,
-        updateProject,
-        deleteProject,
         createConversation,
         renameConversation,
         deleteConversation,
-        moveConversationToProject,
         sendMessage,
         isGeneratingResponse,
-        uploadFiles,
-        deleteFile,
-        deleteFilesBulk,
-        removeFileFromProject,
         downloadFile,
         isSearchModalOpen,
         setIsSearchModalOpen,
-        isCreateProjectModalOpen,
-        setIsCreateProjectModalOpen,
-        pendingMoveConversationId,
-        setPendingMoveConversationId,
-        projectToEdit,
-        setProjectToEdit,
         isProfileModalOpen,
         setIsProfileModalOpen,
-        isAddFromLibraryOpen,
-        setIsAddFromLibraryOpen,
-        onSelectLibraryFilesForChat,
-        setOnSelectLibraryFilesForChat,
-        pendingChatAttachments,
-        setPendingChatAttachments,
-        startConversationWithFiles,
         fileToPreview,
         setFileToPreview,
         previewFile,

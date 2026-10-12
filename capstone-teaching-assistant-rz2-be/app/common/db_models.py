@@ -1,17 +1,19 @@
 import enum
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     SmallInteger,
     String,
     Text,
@@ -33,11 +35,6 @@ class UserRole(enum.StrEnum):
 class AccountStatus(enum.StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
-
-
-class TeachingSemester(enum.StrEnum):
-    SEMESTER_1 = "SEMESTER_1"
-    SEMESTER_2 = "SEMESTER_2"
 
 
 class MessageRole(enum.StrEnum):
@@ -79,9 +76,7 @@ class User(TimestampMixin, Base):
         Enum(AccountStatus, name="account_status"), nullable=False
     )
 
-    projects: Mapped[list[Project]] = relationship(back_populates="supervisor")
     conversations: Mapped[list[Conversation]] = relationship(back_populates="supervisor")
-    files: Mapped[list[File]] = relationship(back_populates="supervisor")
 
 
 class RevokedToken(Base):
@@ -123,32 +118,20 @@ class SupervisorProfile(TimestampMixin, Base):
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(32))
-    teaching_year: Mapped[int | None] = mapped_column(SmallInteger)
-    teaching_semester: Mapped[TeachingSemester | None] = mapped_column(
-        Enum(TeachingSemester, name="teaching_semester")
+    semester_id: Mapped[UUID] = mapped_column(
+        ForeignKey("semesters.id"), nullable=False, index=True
     )
+    semester: Mapped[Semester] = relationship(lazy="selectin")
 
 
-class Project(TimestampMixin, Base):
-    __tablename__ = "projects"
-    __table_args__ = (
-        Index(
-            "ix_projects_supervisor_deleted_updated",
-            "supervisor_id",
-            "deleted_at",
-            "updated_at",
-        ),
-    )
-
+class Semester(TimestampMixin, Base):
+    __tablename__ = "semesters"
+    __table_args__ = (CheckConstraint("end_date >= start_date", name="semester_dates"),)
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    supervisor_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    instructions: Mapped[str | None] = mapped_column(Text)
-
-    supervisor: Mapped[User] = relationship(back_populates="projects")
-    conversations: Mapped[list[Conversation]] = relationship(back_populates="project")
+    year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
 
 class Conversation(TimestampMixin, Base):
@@ -160,22 +143,23 @@ class Conversation(TimestampMixin, Base):
             "deleted_at",
             "updated_at",
         ),
-        Index("ix_conversations_project_deleted", "project_id", "deleted_at"),
+        Index(
+            "ix_conversations_semester_supervisor_deleted",
+            "semester_id",
+            "supervisor_id",
+            "deleted_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     supervisor_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    project_id: Mapped[UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
+    semester_id: Mapped[UUID] = mapped_column(ForeignKey("semesters.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="New conversation")
 
     supervisor: Mapped[User] = relationship(back_populates="conversations")
-    project: Mapped[Project | None] = relationship(back_populates="conversations")
     messages: Mapped[list[Message]] = relationship(
-        back_populates="conversation", cascade="all, delete-orphan"
-    )
-    message_files: Mapped[list[MessageFile]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
 
@@ -208,21 +192,17 @@ class Message(TimestampMixin, Base):
     sources: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list, nullable=False)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
-    files: Mapped[list[MessageFile]] = relationship(
-        back_populates="message", cascade="all, delete-orphan"
-    )
 
 
 class File(TimestampMixin, Base):
     __tablename__ = "files"
     __table_args__ = (
-        Index("ix_files_supervisor_deleted_created", "supervisor_id", "deleted_at", "created_at"),
+        Index("ix_files_semester_deleted_created", "semester_id", "deleted_at", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    supervisor_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
+    semester_id: Mapped[UUID] = mapped_column(ForeignKey("semesters.id"), nullable=False)
+    uploaded_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     stored_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_base_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -234,46 +214,9 @@ class File(TimestampMixin, Base):
     )
     processing_error: Mapped[str | None] = mapped_column(Text)
 
-    supervisor: Mapped[User] = relationship(back_populates="files")
-    message_files: Mapped[list[MessageFile]] = relationship(
-        back_populates="file", cascade="all, delete-orphan"
-    )
     chunks: Mapped[list[DocumentChunk]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
-
-
-class MessageFile(SoftDeleteMixin, Base):
-    __tablename__ = "message_files"
-    __table_args__ = (
-        UniqueConstraint("conversation_id", "message_id", "file_id"),
-        Index("ix_message_files_conversation_deleted", "conversation_id", "deleted_at"),
-        Index("ix_message_files_file_deleted", "file_id", "deleted_at"),
-        Index(
-            "uq_message_files_conversation_file_without_message",
-            "conversation_id",
-            "file_id",
-            unique=True,
-            sqlite_where=text("message_id IS NULL AND deleted_at IS NULL"),
-            postgresql_where=text("message_id IS NULL AND deleted_at IS NULL"),
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    conversation_id: Mapped[UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"))
-    file_id: Mapped[UUID] = mapped_column(
-        ForeignKey("files.id", ondelete="CASCADE"), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-    conversation: Mapped[Conversation] = relationship(back_populates="message_files")
-    message: Mapped[Message | None] = relationship(back_populates="files")
-    file: Mapped[File] = relationship(back_populates="message_files")
 
 
 class DocumentChunk(SoftDeleteMixin, Base):
@@ -296,4 +239,3 @@ class DocumentChunk(SoftDeleteMixin, Base):
     )
 
     file: Mapped[File] = relationship(back_populates="chunks")
-

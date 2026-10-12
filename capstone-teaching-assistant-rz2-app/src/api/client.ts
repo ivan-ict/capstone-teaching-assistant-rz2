@@ -1,4 +1,4 @@
-import { AttachedFile, Conversation, Faculty, Message, Project, User } from '../types';
+import { AttachedFile, Conversation, Faculty, Message, Semester, SemesterInput, SemesterSupervisor, Page, User } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
@@ -16,7 +16,6 @@ export class ApiClientError extends Error {
 
 type AccountStatus = 'ACTIVE' | 'INACTIVE';
 type UserRoleDTO = 'ADMIN' | 'SUPERVISOR';
-type TeachingSemesterDTO = 'SEMESTER_1' | 'SEMESTER_2';
 
 interface LoginResponseDTO {
   id: string;
@@ -38,8 +37,7 @@ interface AccountDTO {
     email: string;
     phone: string | null;
     faculty: FacultyDTO;
-    teaching_year: number | null;
-    teaching_semester: TeachingSemesterDTO | null;
+    semester: Semester;
   } | null;
 }
 
@@ -60,8 +58,7 @@ interface SupervisorListItemDTO {
   last_name: string;
   email: string;
   phone: string | null;
-  teaching_year: number | null;
-  teaching_semester: TeachingSemesterDTO | null;
+  semester: Semester;
   status: AccountStatus;
   faculty: {
     id: string;
@@ -81,22 +78,13 @@ interface SupervisorDetailDTO {
     email: string;
     phone: string | null;
     faculty_id: string;
-    teaching_year: number | null;
-    teaching_semester: TeachingSemesterDTO | null;
+    semester: Semester;
   };
-}
-
-interface ProjectDTO {
-  id: string;
-  name: string;
-  instructions: string | null;
-  created_at?: string;
-  updated_at: string;
 }
 
 interface ConversationDTO {
   id: string;
-  project_id: string | null;
+  semester_id: string;
   title: string;
   created_at: string;
   updated_at: string;
@@ -108,13 +96,6 @@ interface ConversationMessageDTO {
   content: string;
   status: string;
   sequence_no: number;
-  files: {
-    id: string;
-    original_filename: string;
-    mime_type?: string | null;
-    file_size_bytes: number;
-    created_at: string;
-  }[];
   sources?: {
     file_id: string;
     original_filename: string;
@@ -139,11 +120,6 @@ interface FileContentDTO {
   original_filename: string;
   mime_type: string;
   content: string;
-}
-
-interface FileBulkDeleteResultDTO {
-  deleted_ids: string[];
-  failed_ids: string[];
 }
 
 interface MessageCreateResponseDTO {
@@ -187,6 +163,14 @@ export class ApiClient {
     });
     this.setToken(response.access_token);
     return response;
+  }
+
+  forgotPassword(identifier: string): Promise<{ message: string }> {
+    return this.request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+      skipAuth: true,
+    });
   }
 
   async logout(): Promise<void> {
@@ -264,20 +248,18 @@ export class ApiClient {
     return mapSupervisorDetail(dto, faculties);
   }
 
-  async createSupervisor(data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status'>, faculties: Faculty[]): Promise<User> {
+  async createSupervisor(data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'fullName' | 'role' | 'status' | 'password'>, faculties: Faculty[]): Promise<User> {
     const faculty = findFaculty(faculties, data.faculty);
     const dto = await this.request<SupervisorDetailDTO | { id: string; username: string; status: AccountStatus; profile: SupervisorDetailDTO['profile'] }>('/admin/supervisors', {
       method: 'POST',
       body: JSON.stringify({
         username: data.username,
-        password: data.password,
         first_name: data.firstName,
         last_name: data.lastName,
         email: data.email,
         phone: data.phone || null,
         faculty_id: faculty?.id || data.faculty,
-        teaching_year: data.teachingYear ? Number(data.teachingYear) : null,
-        teaching_semester: toApiSemester(data.teachingSemester),
+        semester_id: data.semesterId,
       }),
     });
     return mapSupervisorDetail(dto as SupervisorDetailDTO, faculties);
@@ -293,8 +275,6 @@ export class ApiClient {
         ...(data.lastName !== undefined ? { last_name: data.lastName } : {}),
         ...(data.phone !== undefined ? { phone: data.phone } : {}),
         ...(data.faculty !== undefined ? { faculty_id: faculty?.id || data.faculty } : {}),
-        ...(data.teachingYear !== undefined ? { teaching_year: data.teachingYear ? Number(data.teachingYear) : null } : {}),
-        ...(data.teachingSemester !== undefined ? { teaching_semester: toApiSemester(data.teachingSemester) } : {}),
       }),
     });
   }
@@ -306,61 +286,84 @@ export class ApiClient {
     });
   }
 
-  resetSupervisorPassword(id: string, newPassword: string): Promise<{ id: string; message: string }> {
-    return this.request(`/admin/supervisors/${id}/password`, {
-      method: 'PUT',
-      body: JSON.stringify({ new_password: newPassword }),
-    });
+  resetSupervisorPassword(id: string): Promise<{ id: string; email: string; message: string }> {
+    return this.request(`/admin/supervisors/${id}/password-reset`, { method: 'POST' });
   }
 
   deleteSupervisor(id: string): Promise<void> {
     return this.request(`/admin/supervisors/${id}`, { method: 'DELETE' });
   }
 
-  async listProjects(): Promise<Project[]> {
-    const response = await this.request<{ items: ProjectDTO[] }>('/projects');
-    return response.items.map(mapProject);
+  listSemesters(archived = false, search = '', page = 1): Promise<Page<Semester>> {
+    return this.request(`/admin/semesters?${new URLSearchParams({ archived: String(archived), search, page: String(page), page_size: '20' })}`);
   }
 
-  async createProject(name: string, instructions?: string): Promise<Project> {
-    const response = await this.request<ProjectDTO>('/projects', {
-      method: 'POST',
-      body: JSON.stringify({ name, instructions: instructions || null }),
-    });
-    return mapProject(response);
+  async activeSemesters(): Promise<Semester[]> {
+    const items: Semester[] = [];
+    let page = 1;
+    while (true) {
+      const result = await this.listSemesters(false, '', page++);
+      items.push(...result.items);
+      if (items.length >= result.total || !result.items.length) return items;
+    }
   }
 
-  async updateProject(id: string, name: string, instructions?: string): Promise<void> {
-    await this.request(`/projects/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ name, instructions: instructions || null }),
-    });
+  saveSemester(data: SemesterInput, id?: string): Promise<Semester> {
+    return this.request(`/admin/semesters${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', body: JSON.stringify(data) });
   }
 
-  async deleteProject(id: string): Promise<void> {
-    await this.request(`/projects/${id}`, { method: 'DELETE' });
+  archiveSemester(id: string): Promise<void> {
+    return this.request(`/admin/semesters/${id}`, { method: 'DELETE' });
   }
 
-  async listProjectFiles(projectId: string): Promise<AttachedFile[]> {
-    const response = await this.request<{ items: FileDTO[] }>(`/projects/${projectId}/files`);
-    return response.items.map(file => mapFile(file, [projectId]));
+  semesterSupervisors(id: string, candidates = false, search = '', page = 1): Promise<Page<SemesterSupervisor>> {
+    return this.request(`/admin/semesters/${id}/${candidates ? 'supervisor-candidates' : 'supervisors'}?${new URLSearchParams({ search, page: String(page), page_size: '20' })}`);
+  }
+
+  assignSupervisors(id: string, supervisorIds: string[]): Promise<{ moved_count: number }> {
+    return this.request(`/admin/semesters/${id}/supervisors`, { method: 'POST', body: JSON.stringify({ supervisor_ids: supervisorIds }) });
+  }
+
+  async semesterFiles(id: string, page = 1): Promise<Page<AttachedFile>> {
+    const result = await this.request<Page<FileDTO>>(`/admin/semesters/${id}/files?page=${page}&page_size=20`);
+    return { ...result, items: result.items.map(mapFile) };
+  }
+
+  async uploadSemesterFile(id: string, file: File): Promise<AttachedFile> {
+    const body = new FormData();
+    body.append('file', file);
+    return mapFile(await this.request<FileDTO>(`/admin/semesters/${id}/files`, { method: 'POST', body, isMultipart: true }));
+  }
+
+  deleteSemesterFile(semesterId: string, fileId: string): Promise<void> {
+    return this.request(`/admin/semesters/${semesterId}/files/${fileId}`, { method: 'DELETE' });
   }
 
   async listConversations(): Promise<Conversation[]> {
-    const response = await this.request<{ items: ConversationDTO[] }>('/conversations?page=1&page_size=100');
-    return response.items.map(mapConversation);
+    const items: Conversation[] = [];
+    let page = 1;
+    while (true) {
+      const response = await this.request<Page<ConversationDTO>>(`/conversations?page=${page++}&page_size=100`);
+      items.push(...response.items.map(mapConversation));
+      if (items.length >= response.total || !response.items.length) return items;
+    }
   }
 
   async searchConversations(query: string): Promise<Conversation[]> {
-    const params = new URLSearchParams({ query, page: '1', page_size: '100' });
-    const response = await this.request<{ items: ConversationDTO[] }>(`/conversations/search?${params}`);
-    return response.items.map(mapConversation);
+    const items: Conversation[] = [];
+    let page = 1;
+    while (true) {
+      const params = new URLSearchParams({ query, page: String(page++), page_size: '100' });
+      const response = await this.request<Page<ConversationDTO>>(`/conversations/search?${params}`);
+      items.push(...response.items.map(mapConversation));
+      if (items.length >= response.total || !response.items.length) return items;
+    }
   }
 
-  async createConversation(projectId: string | null = null): Promise<Conversation> {
+  async createConversation(): Promise<Conversation> {
     const response = await this.request<ConversationDTO>('/conversations', {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId }),
+      body: JSON.stringify({}),
     });
     return mapConversation(response);
   }
@@ -372,13 +375,6 @@ export class ApiClient {
     });
   }
 
-  async moveConversation(id: string, projectId: string | null): Promise<void> {
-    await this.request(`/conversations/${id}/project`, {
-      method: 'PATCH',
-      body: JSON.stringify({ project_id: projectId }),
-    });
-  }
-
   async deleteConversation(id: string): Promise<void> {
     await this.request(`/conversations/${id}`, { method: 'DELETE' });
   }
@@ -386,57 +382,6 @@ export class ApiClient {
   async listConversationMessages(conversationId: string): Promise<Message[]> {
     const response = await this.request<{ items: ConversationMessageDTO[] }>(`/conversations/${conversationId}/messages`);
     return response.items.map(mapMessage);
-  }
-
-  async listConversationFiles(conversationId: string): Promise<AttachedFile[]> {
-    const response = await this.request<{ items: FileDTO[] }>(`/conversations/${conversationId}/files`);
-    return response.items.map(file => mapFile(file));
-  }
-
-  async associateConversationFiles(conversationId: string, fileIds: string[]): Promise<void> {
-    if (fileIds.length === 0) return;
-    await this.request(`/conversations/${conversationId}/files`, {
-      method: 'POST',
-      body: JSON.stringify({ file_ids: fileIds }),
-    });
-  }
-
-  async dissociateConversationFile(conversationId: string, fileId: string): Promise<void> {
-    await this.request(`/conversations/${conversationId}/files/${fileId}`, { method: 'DELETE' });
-  }
-
-  async listFiles(search = ''): Promise<AttachedFile[]> {
-    const searchParams = new URLSearchParams({ page: '1', page_size: '100' });
-    if (search) searchParams.set('search', search);
-    const response = await this.request<{ items: FileDTO[] }>(`/files?${searchParams}`);
-    return response.items.map(file => mapFile(file));
-  }
-
-  async uploadFile(file: File): Promise<AttachedFile> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await this.request<FileDTO>('/files', {
-      method: 'POST',
-      body: formData,
-      isMultipart: true,
-    });
-    return mapFile(response);
-  }
-
-  async deleteFile(id: string): Promise<void> {
-    await this.request(`/files/${id}`, { method: 'DELETE' });
-  }
-
-  async deleteFilesBulk(ids: string[]): Promise<{ deletedIds: string[]; failedIds: string[] }> {
-    if (!ids.length) return { deletedIds: [], failedIds: [] };
-    const response = await this.request<FileBulkDeleteResultDTO>('/files/bulk-delete', {
-      method: 'POST',
-      body: JSON.stringify({ file_ids: ids }),
-    });
-    return {
-      deletedIds: response.deleted_ids,
-      failedIds: response.failed_ids,
-    };
   }
 
   async getFileContent(id: string): Promise<FileContentDTO> {
@@ -457,15 +402,16 @@ export class ApiClient {
     return response.blob();
   }
 
-  async createMessage(conversationId: string, content: string, fileIds: string[]): Promise<MessageCreateResponseDTO> {
+  async createMessage(conversationId: string, content: string): Promise<MessageCreateResponseDTO> {
     return this.request(`/conversations/${conversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, file_ids: fileIds }),
+      body: JSON.stringify({ content }),
     });
   }
 
-  async streamMessage(streamUrl: string, onToken: (token: string) => void): Promise<void> {
+  async streamMessage(streamUrl: string, onToken: (token: string) => void, signal?: AbortSignal): Promise<void> {
     const response = await fetch(toAbsoluteApiUrl(streamUrl), {
+      signal,
       headers: this.authHeaders(),
     });
     if (!response.ok) {
@@ -535,27 +481,14 @@ export function mapAccount(dto: AccountDTO): User {
     fullName: `${profile?.first_name || dto.username} ${profile?.last_name || ''}`.trim(),
     email: profile?.email || '',
     phone: profile?.phone || '',
-    teachingYear: profile?.teaching_year ? String(profile.teaching_year) : '',
-    teachingSemester: fromApiSemester(profile?.teaching_semester),
+    semester: profile?.semester,
+    semesterId: profile?.semester.id,
     faculty: profile?.faculty.name || '',
     role: dto.role === 'ADMIN' ? 'admin' : 'supervisor',
     status: dto.status === 'ACTIVE' ? 'active' : 'suspended',
     createdAt: dto.created_at,
     updatedAt: '',
   };
-}
-
-export function toApiSemester(value?: string | null): TeachingSemesterDTO | null {
-  if (value === 'Semester 1' || value === 'SEMESTER_1') return 'SEMESTER_1';
-  if (value === 'Semester 2' || value === 'SEMESTER_2') return 'SEMESTER_2';
-  if (!value) return null;
-  throw new ApiClientError(422, 'UNSUPPORTED_SEMESTER', 'The backend only supports Semester 1 and Semester 2.');
-}
-
-function fromApiSemester(value?: TeachingSemesterDTO | null): string {
-  if (value === 'SEMESTER_1') return 'Semester 1';
-  if (value === 'SEMESTER_2') return 'Semester 2';
-  return '';
 }
 
 function mapFaculty(dto: FacultyDTO): Faculty {
@@ -579,8 +512,8 @@ function mapSupervisorListItem(dto: SupervisorListItemDTO): User {
     fullName: `${dto.first_name} ${dto.last_name}`.trim(),
     email: dto.email,
     phone: dto.phone || '',
-    teachingYear: dto.teaching_year ? String(dto.teaching_year) : '',
-    teachingSemester: fromApiSemester(dto.teaching_semester),
+    semester: dto.semester,
+    semesterId: dto.semester.id,
     faculty: dto.faculty.name,
     role: 'supervisor',
     status: dto.status === 'ACTIVE' ? 'active' : 'suspended',
@@ -601,8 +534,8 @@ function mapSupervisorDetail(dto: SupervisorDetailDTO, faculties: Faculty[]): Us
     fullName: `${firstName} ${lastName}`.trim(),
     email: dto.profile.email,
     phone: dto.profile.phone || '',
-    teachingYear: dto.profile.teaching_year ? String(dto.profile.teaching_year) : '',
-    teachingSemester: fromApiSemester(dto.profile.teaching_semester),
+    semester: dto.profile.semester,
+    semesterId: dto.profile.semester.id,
     faculty: faculty?.name || dto.profile.faculty_id,
     role: 'supervisor',
     status: dto.status === 'ACTIVE' ? 'active' : 'suspended',
@@ -611,21 +544,11 @@ function mapSupervisorDetail(dto: SupervisorDetailDTO, faculties: Faculty[]): Us
   };
 }
 
-function mapProject(dto: ProjectDTO): Project {
-  return {
-    id: dto.id,
-    name: dto.name,
-    instructions: dto.instructions || '',
-    createdAt: dto.created_at || dto.updated_at,
-    updatedAt: dto.updated_at,
-  };
-}
-
 function mapConversation(dto: ConversationDTO): Conversation {
   return {
     id: dto.id,
     title: dto.title,
-    projectId: dto.project_id,
+    semesterId: dto.semester_id,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     messages: [],
@@ -638,14 +561,6 @@ function mapMessage(dto: ConversationMessageDTO): Message {
     role: dto.role === 'USER' ? 'user' : 'assistant',
     content: dto.content,
     timestamp: dto.created_at,
-    attachedFiles: dto.files.map(file => ({
-      id: file.id,
-      name: file.original_filename,
-      size: file.file_size_bytes,
-      type: file.mime_type || 'application/octet-stream',
-      uploadedAt: file.created_at,
-      isImage: Boolean(file.mime_type?.startsWith('image/')),
-    })),
     references: dto.sources?.map(source => ({
       fileId: source.file_id,
       filename: source.original_filename,
@@ -654,14 +569,13 @@ function mapMessage(dto: ConversationMessageDTO): Message {
   };
 }
 
-function mapFile(dto: FileDTO, projectIds: string[] = []): AttachedFile {
+function mapFile(dto: FileDTO): AttachedFile {
   return {
     id: dto.id,
     name: dto.original_filename,
     size: dto.file_size_bytes,
     type: dto.mime_type,
     uploadedAt: dto.created_at,
-    projectIds,
     isImage: dto.mime_type.startsWith('image/'),
     processingStatus: dto.processing_status,
     processingError: dto.processing_error || undefined,

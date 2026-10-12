@@ -18,8 +18,6 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
     email: supervisor.email || '',
     phone: supervisor.phone || '',
     faculty: supervisor.faculty || faculties[0]?.name || 'Computer Science',
-    teachingYear: supervisor.teachingYear || '2026',
-    teachingSemester: supervisor.teachingSemester || 'Semester 1',
   });
 
   const [error, setError] = useState('');
@@ -33,8 +31,6 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
       email: supervisor.email || '',
       phone: supervisor.phone || '',
       faculty: supervisor.faculty || faculties[0]?.name || 'Computer Science',
-      teachingYear: supervisor.teachingYear || '2026',
-      teachingSemester: supervisor.teachingSemester || 'Semester 1',
     });
   }, [supervisor, faculties]);
 
@@ -66,8 +62,6 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
       email: formData.email.trim(),
       phone: formData.phone.trim(),
       faculty: formData.faculty,
-      teachingYear: formData.teachingYear,
-      teachingSemester: formData.teachingSemester,
     });
     if (!result.success) {
       setError(result.message || 'Could not update supervisor.');
@@ -229,44 +223,7 @@ export const EditSupervisorModal: React.FC<EditSupervisorModalProps> = ({ superv
               </select>
             </div>
 
-            {/* Teaching Academic Year */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Academic Year *
-              </label>
-              <select
-                id="edit-supervisor-teaching-year"
-                value={formData.teachingYear}
-                onChange={(e) => setFormData({ ...formData, teachingYear: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition cursor-pointer"
-              >
-                <option value="2030">2030</option>
-                <option value="2029">2029</option>
-                <option value="2028">2028</option>
-                <option value="2027">2027</option>
-                <option value="2026">2026</option>
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-                <option value="2022">2022</option>
-              </select>
-            </div>
-
-            {/* Teaching Semester */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Academic Semester *
-              </label>
-              <select
-                id="edit-supervisor-teaching-semester"
-                value={formData.teachingSemester}
-                onChange={(e) => setFormData({ ...formData, teachingSemester: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition cursor-pointer"
-              >
-                <option value="Semester 1">Semester 1</option>
-                <option value="Semester 2">Semester 2</option>
-              </select>
-            </div>
+            <div className="sm:col-span-2 text-sm"><span className="font-semibold">Semester: </span>{supervisor.semester?.name}{supervisor.semester?.deleted_at && ' (archived)'}<p className="text-xs text-slate-500 mt-1">Manage assignments from the Semesters page.</p></div>
           </div>
 
           {/* Modal Footer / Buttons */}

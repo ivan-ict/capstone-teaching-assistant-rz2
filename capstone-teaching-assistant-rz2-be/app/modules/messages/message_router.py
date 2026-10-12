@@ -34,7 +34,6 @@ async def create_message(
         current_user.id,
         conversation_id,
         payload.content,
-        payload.file_ids,
     )
 
 

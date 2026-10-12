@@ -22,6 +22,7 @@ export const ProfileModal: React.FC = () => {
     isProfileModalOpen, 
     setIsProfileModalOpen, 
     changeCurrentUserPassword,
+    logout,
     faculties 
   } = useApp();
 
@@ -107,9 +108,9 @@ export const ProfileModal: React.FC = () => {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      // The current session was revoked by the password change, so sign out once the user has seen the message.
       setTimeout(() => {
-        setSuccessMsg('');
-        setActiveTab('profile');
+        void logout();
       }, 1500);
     } else {
       setErrorMsg(result.message);
@@ -247,10 +248,10 @@ export const ProfileModal: React.FC = () => {
                   </div>
                   <div className="text-slate-900 dark:text-slate-100 font-semibold flex items-center gap-2">
                     <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
-                      {currentUser.teachingYear || '2026'}
+                      {currentUser.semester?.year || '—'}
                     </span>
                     <span className="text-slate-400">&bull;</span>
-                    <span>{currentUser.teachingSemester || 'Semester 1'}</span>
+                    <span>{currentUser.semester?.name || 'No semester assigned'}</span>
                   </div>
                 </div>
               </div>

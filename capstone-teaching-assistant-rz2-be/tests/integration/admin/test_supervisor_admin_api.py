@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.db_models import AccountStatus, Faculty, SupervisorProfile, User, UserRole
 from app.common.security import hash_password
+from tests.conftest import DEV_SEMESTER_ID
 
 
 @pytest.mark.asyncio
@@ -32,14 +33,12 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
         headers=headers,
         json={
             "username": "jsmith",
-            "password": "Password123",
+            "semester_id": str(DEV_SEMESTER_ID),
             "first_name": "John",
             "last_name": "Smith",
             "email": "jsmith@example.edu.au",
             "phone": "0412345678",
             "faculty_id": str(faculty.id),
-            "teaching_year": 2026,
-            "teaching_semester": "SEMESTER_2",
         },
     )
     assert create_response.status_code == 201
@@ -50,8 +49,7 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
     assert list_response.json()["total"] == 1
     listed = list_response.json()["items"][0]
     assert listed["phone"] == "0412345678"
-    assert listed["teaching_year"] == 2026
-    assert listed["teaching_semester"] == "SEMESTER_2"
+    assert listed["semester"]["id"] == str(DEV_SEMESTER_ID)
     assert listed["created_at"]
     assert listed["updated_at"]
 
@@ -78,8 +76,6 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
             "email": "john.smith@example.edu.au",
             "phone": "0499999999",
             "faculty_id": str(faculty.id),
-            "teaching_year": 2026,
-            "teaching_semester": "SEMESTER_1",
         },
     )
     assert update_response.status_code == 200
@@ -92,16 +88,12 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
         headers=headers,
         json={
             "phone": " \t ",
-            "teaching_year": None,
-            "teaching_semester": None,
         },
     )
     assert clear_nullable_response.status_code == 200
     profile = clear_nullable_response.json()["profile"]
     assert profile["email"] == "john.smith@example.edu.au"
     assert profile["phone"] is None
-    assert profile["teaching_year"] is None
-    assert profile["teaching_semester"] is None
 
     empty_update_response = await client.patch(
         f"/api/v1/admin/supervisors/{supervisor_id}",
@@ -128,13 +120,12 @@ async def test_admin_supervisor_workflow(client: AsyncClient, session: AsyncSess
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "INACTIVE"
 
-    password_response = await client.put(
-        f"/api/v1/admin/supervisors/{supervisor_id}/password",
+    password_response = await client.post(
+        f"/api/v1/admin/supervisors/{supervisor_id}/password-reset",
         headers=headers,
-        json={"new_password": "NewPassword123"},
     )
     assert password_response.status_code == 200
-    assert password_response.json()["message"] == "Supervisor password updated."
+    assert password_response.json()["email"] == "john.smith@example.edu.au"
 
     delete_response = await client.delete(
         f"/api/v1/admin/supervisors/{supervisor_id}",
@@ -222,7 +213,7 @@ async def test_create_supervisor_allows_soft_deleted_username_reuse(
         headers=headers,
         json={
             "username": "jsmith",
-            "password": "Password123",
+            "semester_id": str(DEV_SEMESTER_ID),
             "first_name": "John",
             "last_name": "Smith",
             "email": "john.smith@example.edu.au",
@@ -256,6 +247,7 @@ async def test_create_supervisor_allows_soft_deleted_email_reuse(
     await session.flush()
     session.add(
         SupervisorProfile(
+            semester_id=DEV_SEMESTER_ID,
             user_id=deleted_user.id,
             faculty_id=faculty.id,
             first_name="Deleted",
@@ -277,7 +269,7 @@ async def test_create_supervisor_allows_soft_deleted_email_reuse(
         headers=headers,
         json={
             "username": "jsmith",
-            "password": "Password123",
+            "semester_id": str(DEV_SEMESTER_ID),
             "first_name": "John",
             "last_name": "Smith",
             "email": "jsmith@example.edu.au",
@@ -297,7 +289,7 @@ async def test_create_supervisor_allows_soft_deleted_email_reuse(
         ("first_name", " \t "),
         ("last_name", "\n "),
         ("email", f"{'a' * 315}@example.edu.au"),
-        ("teaching_year", 2200),
+        ("semester_id", "not-a-uuid"),
     ],
 )
 async def test_create_supervisor_rejects_values_outside_database_bounds(
@@ -323,7 +315,7 @@ async def test_create_supervisor_rejects_values_outside_database_bounds(
     headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
     payload = {
         "username": "jsmith",
-        "password": "Password123",
+        "semester_id": str(DEV_SEMESTER_ID),
         "first_name": "John",
         "last_name": "Smith",
         "email": "jsmith@example.edu.au",

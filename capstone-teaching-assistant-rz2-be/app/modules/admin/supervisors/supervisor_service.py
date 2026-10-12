@@ -5,9 +5,17 @@ from fastapi import status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.db_models import AccountStatus, SupervisorProfile, TeachingSemester, User, UserRole
+from app.common.config import get_settings
+from app.common.db_models import AccountStatus, SupervisorProfile, User, UserRole
+from app.common.email import (
+    EmailDeliveryError,
+    EmailMessageData,
+    EmailSender,
+    build_account_created_email,
+    build_password_reset_email,
+)
 from app.common.errors import ApiError, NotFoundError
-from app.common.security import hash_password
+from app.common.security import generate_password, hash_password
 from app.modules.admin.supervisors.supervisor_model import (
     SupervisorCreateDTO,
     SupervisorCreateResponseDTO,
@@ -15,13 +23,15 @@ from app.modules.admin.supervisors.supervisor_model import (
     SupervisorFacultySummaryDTO,
     SupervisorListDTO,
     SupervisorListItemDTO,
-    SupervisorPasswordUpdateResponseDTO,
+    SupervisorPasswordResetResponseDTO,
     SupervisorProfileDTO,
     SupervisorStatusResponseDTO,
     SupervisorUpdateDTO,
     SupervisorUpdateResponseDTO,
 )
 from app.modules.admin.supervisors.supervisor_repository import SupervisorRepository
+from app.modules.semesters.semester_model import SemesterSummaryDTO
+from app.modules.semesters.semester_service import SemesterService
 
 
 class SupervisorService:
@@ -33,7 +43,10 @@ class SupervisorService:
         self.session = session
         self.repository = repository or SupervisorRepository(session)
 
-    async def create_supervisor(self, payload: SupervisorCreateDTO) -> SupervisorCreateResponseDTO:
+    async def create_supervisor(
+        self, payload: SupervisorCreateDTO, email_sender: EmailSender
+    ) -> SupervisorCreateResponseDTO:
+        await SemesterService(self.session).get(payload.semester_id, writable=True)
         await self._ensure_faculty(payload.faculty_id)
         if await self.repository.username_exists(payload.username):
             raise ApiError(
@@ -42,10 +55,11 @@ class SupervisorService:
         if await self.repository.email_exists(str(payload.email)):
             raise ApiError("DUPLICATE_EMAIL", "Email already exists.", status.HTTP_409_CONFLICT)
         user_id = uuid4()
+        password = generate_password()
         user = User(
             id=user_id,
             username=payload.username,
-            password_hash=hash_password(payload.password),
+            password_hash=hash_password(password),
             role=UserRole.SUPERVISOR,
             status=AccountStatus.ACTIVE,
         )
@@ -56,11 +70,28 @@ class SupervisorService:
             last_name=payload.last_name,
             email=str(payload.email),
             phone=payload.phone,
-            teaching_year=payload.teaching_year,
-            teaching_semester=payload.teaching_semester,
+            semester_id=payload.semester_id,
         )
         try:
             user, profile = await self.repository.create_user_and_profile(user, profile)
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise self._duplicate_supervisor_error(exc) from exc
+        # Send before committing so an account never exists without its owner receiving
+        # the generated password.
+        message = build_account_created_email(
+            to=profile.email,
+            first_name=profile.first_name,
+            username=user.username,
+            password=password,
+            login_url=get_settings().frontend_login_url,
+        )
+        await self._send_or_rollback(
+            email_sender,
+            message,
+            "Account was not created because the welcome email could not be sent.",
+        )
+        try:
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
@@ -77,8 +108,7 @@ class SupervisorService:
         search: str | None,
         faculty_id: UUID | None,
         status_filter: AccountStatus | None,
-        teaching_year: int | None,
-        teaching_semester: TeachingSemester | None,
+        semester_id: UUID | None,
         sort_by: str,
         sort_order: str,
         page: int,
@@ -89,8 +119,7 @@ class SupervisorService:
             "username",
             "email",
             "faculty",
-            "teaching_year",
-            "teaching_semester",
+            "semester",
             "created_at",
             "updated_at",
         }
@@ -102,8 +131,7 @@ class SupervisorService:
             search,
             faculty_id,
             status_filter,
-            teaching_year,
-            teaching_semester,
+            semester_id,
             sort_by,
             sort_order,
             page,
@@ -118,8 +146,7 @@ class SupervisorService:
                     last_name=profile.last_name,
                     email=profile.email,
                     phone=profile.phone,
-                    teaching_year=profile.teaching_year,
-                    teaching_semester=profile.teaching_semester,
+                    semester=SemesterSummaryDTO.model_validate(profile.semester),
                     status=user.status,
                     faculty=SupervisorFacultySummaryDTO(id=faculty.id, name=faculty.name),
                     created_at=user.created_at,
@@ -159,10 +186,6 @@ class SupervisorService:
             profile.email = email
         if "phone" in payload.model_fields_set:
             profile.phone = payload.phone
-        if "teaching_year" in payload.model_fields_set:
-            profile.teaching_year = payload.teaching_year
-        if "teaching_semester" in payload.model_fields_set:
-            profile.teaching_semester = payload.teaching_semester
         try:
             await self.session.commit()
         except IntegrityError as exc:
@@ -179,15 +202,40 @@ class SupervisorService:
         return SupervisorStatusResponseDTO(id=user.id, status=user.status)
 
     async def reset_password(
-        self, supervisor_id: UUID, new_password: str
-    ) -> SupervisorPasswordUpdateResponseDTO:
-        user, _profile, _faculty = await self._get_supervisor(supervisor_id)
-        user.password_hash = hash_password(new_password)
-        await self.session.commit()
-        return SupervisorPasswordUpdateResponseDTO(
-            id=user.id,
-            message="Supervisor password updated.",
+        self, supervisor_id: UUID, email_sender: EmailSender
+    ) -> SupervisorPasswordResetResponseDTO:
+        user, profile, _faculty = await self._get_supervisor(supervisor_id)
+        password = generate_password()
+        user.password_hash = hash_password(password)
+        message = build_password_reset_email(
+            to=profile.email,
+            first_name=profile.first_name,
+            username=user.username,
+            password=password,
+            login_url=get_settings().frontend_login_url,
         )
+        await self._send_or_rollback(
+            email_sender,
+            message,
+            "Password was not reset because the email could not be sent.",
+        )
+        await self.session.commit()
+        return SupervisorPasswordResetResponseDTO(
+            id=user.id,
+            email=profile.email,
+            message=f"A new password has been sent to {profile.email}.",
+        )
+
+    async def _send_or_rollback(
+        self, email_sender: EmailSender, message: EmailMessageData, failure_message: str
+    ) -> None:
+        try:
+            await email_sender.send(message)
+        except EmailDeliveryError as exc:
+            await self.session.rollback()
+            raise ApiError(
+                "EMAIL_DELIVERY_FAILED", failure_message, status.HTTP_502_BAD_GATEWAY
+            ) from exc
 
     async def _get_supervisor(self, supervisor_id: UUID) -> tuple[User, SupervisorProfile, object]:
         row = await self.repository.get_supervisor(supervisor_id)
@@ -213,8 +261,7 @@ class SupervisorService:
             email=profile.email,
             phone=profile.phone,
             faculty_id=profile.faculty_id,
-            teaching_year=profile.teaching_year,
-            teaching_semester=profile.teaching_semester,
+            semester=SemesterSummaryDTO.model_validate(profile.semester),
         )
 
     def _duplicate_supervisor_error(self, exc: IntegrityError) -> ApiError:

@@ -10,7 +10,7 @@ from app.common.config import Settings
 from app.common.db_models import Conversation, Message, MessageRole, MessageStatus
 from app.modules.messages.message_repository import MessageRepository
 from app.modules.messages.message_service import MessageService
-from tests.conftest import DEV_SUPERVISOR_ID
+from tests.conftest import DEV_SEMESTER_ID, DEV_SUPERVISOR_ID
 
 
 class FakeChat:
@@ -60,15 +60,15 @@ class BlankChat:
 
 
 async def prepared_stream(service: MessageService, message_id: UUID) -> AsyncIterator[str]:
-    generation_context = await service.prepare_assistant_stream(
-        DEV_SUPERVISOR_ID, message_id
-    )
+    generation_context = await service.prepare_assistant_stream(DEV_SUPERVISOR_ID, message_id)
     return service.stream_assistant_response(generation_context)
 
 
 @pytest.mark.asyncio
 async def test_create_message_pair_then_stream_and_retry(session: AsyncSession) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
     service = MessageService(
@@ -82,7 +82,6 @@ async def test_create_message_pair_then_stream_and_retry(session: AsyncSession) 
         DEV_SUPERVISOR_ID,
         conversation.id,
         "How should I handle missed meetings?",
-        [],
     )
 
     assert created.user_message.sequence_no == 1
@@ -107,7 +106,9 @@ async def test_create_message_pair_then_stream_and_retry(session: AsyncSession) 
 
 @pytest.mark.asyncio
 async def test_stream_uses_only_completed_non_empty_history(session: AsyncSession) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.flush()
     session.add_all(
@@ -148,7 +149,6 @@ async def test_stream_uses_only_completed_non_empty_history(session: AsyncSessio
         DEV_SUPERVISOR_ID,
         conversation.id,
         "New question",
-        [],
     )
 
     events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
@@ -161,7 +161,9 @@ async def test_stream_uses_only_completed_non_empty_history(session: AsyncSessio
 async def test_stream_excludes_current_prompt_from_relevant_prior_messages(
     session: AsyncSession,
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
     chat = FakeChat()
@@ -176,7 +178,6 @@ async def test_stream_excludes_current_prompt_from_relevant_prior_messages(
         DEV_SUPERVISOR_ID,
         conversation.id,
         "Current prompt marker",
-        [],
     )
 
     events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
@@ -188,7 +189,9 @@ async def test_stream_excludes_current_prompt_from_relevant_prior_messages(
 
 @pytest.mark.asyncio
 async def test_claim_pending_assistant_message_is_single_use(session: AsyncSession) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.flush()
     assistant_message = Message(
@@ -212,7 +215,9 @@ async def test_claim_pending_assistant_message_is_single_use(session: AsyncSessi
 
 @pytest.mark.asyncio
 async def test_stream_cancellation_marks_assistant_failed(session: AsyncSession) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
     service = MessageService(
@@ -225,13 +230,11 @@ async def test_stream_cancellation_marks_assistant_failed(session: AsyncSession)
         DEV_SUPERVISOR_ID,
         conversation.id,
         "How should I handle missed meetings?",
-        [],
     )
 
     with pytest.raises(asyncio.CancelledError):
         _events = [
-            event
-            async for event in await prepared_stream(service, created.assistant_message.id)
+            event async for event in await prepared_stream(service, created.assistant_message.id)
         ]
 
     assistant_message = await session.get(Message, created.assistant_message.id)
@@ -242,7 +245,9 @@ async def test_stream_cancellation_marks_assistant_failed(session: AsyncSession)
 
 @pytest.mark.asyncio
 async def test_stream_blank_ai_response_marks_assistant_failed(session: AsyncSession) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
     service = MessageService(
@@ -255,7 +260,6 @@ async def test_stream_blank_ai_response_marks_assistant_failed(session: AsyncSes
         DEV_SUPERVISOR_ID,
         conversation.id,
         "How should I handle missed meetings?",
-        [],
     )
 
     events = [event async for event in await prepared_stream(service, created.assistant_message.id)]
@@ -269,7 +273,9 @@ async def test_stream_blank_ai_response_marks_assistant_failed(session: AsyncSes
 
 @pytest.mark.asyncio
 async def test_stream_close_after_start_marks_assistant_failed(session: AsyncSession) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
     service = MessageService(
@@ -282,12 +288,9 @@ async def test_stream_close_after_start_marks_assistant_failed(session: AsyncSes
         DEV_SUPERVISOR_ID,
         conversation.id,
         "How should I handle missed meetings?",
-        [],
     )
 
-    stream = cast(
-        AsyncGenerator[str], await prepared_stream(service, created.assistant_message.id)
-    )
+    stream = cast(AsyncGenerator[str], await prepared_stream(service, created.assistant_message.id))
     start_event = await anext(stream)
     await stream.aclose()
 
@@ -302,7 +305,9 @@ async def test_stream_close_after_start_marks_assistant_failed(session: AsyncSes
 async def test_stream_close_after_complete_keeps_assistant_completed(
     session: AsyncSession,
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
     service = MessageService(
@@ -315,12 +320,9 @@ async def test_stream_close_after_complete_keeps_assistant_completed(
         DEV_SUPERVISOR_ID,
         conversation.id,
         "How should I handle missed meetings?",
-        [],
     )
 
-    stream = cast(
-        AsyncGenerator[str], await prepared_stream(service, created.assistant_message.id)
-    )
+    stream = cast(AsyncGenerator[str], await prepared_stream(service, created.assistant_message.id))
     events: list[str] = []
     while True:
         event = await anext(stream)
@@ -334,3 +336,6 @@ async def test_stream_close_after_complete_keeps_assistant_completed(
     assert assistant_message is not None
     assert assistant_message.status == MessageStatus.COMPLETED
     assert assistant_message.content == "Use weekly check-ins."
+
+
+pytestmark = pytest.mark.usefixtures("assigned_profiles")

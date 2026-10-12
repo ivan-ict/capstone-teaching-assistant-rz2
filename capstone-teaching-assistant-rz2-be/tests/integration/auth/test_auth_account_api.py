@@ -15,6 +15,7 @@ from app.common.db_models import (
 )
 from app.common.security import MAX_PASSWORD_LENGTH, hash_password
 from app.modules.auth.auth_repository import AuthRepository
+from tests.conftest import DEV_SEMESTER_ID
 
 
 @pytest.mark.asyncio
@@ -32,14 +33,13 @@ async def test_login_account_faculties_and_password_workflow(
     await session.flush()
     session.add(
         SupervisorProfile(
+            semester_id=DEV_SEMESTER_ID,
             user_id=supervisor.id,
             faculty_id=faculty.id,
             first_name="Rui",
             last_name="Zhou",
             email="rzhou@example.edu.au",
             phone="0400000000",
-            teaching_year=2026,
-            teaching_semester=None,
         )
     )
     await session.commit()
@@ -158,6 +158,7 @@ async def test_account_hides_profile_when_faculty_is_inactive(
     await session.flush()
     session.add(
         SupervisorProfile(
+            semester_id=DEV_SEMESTER_ID,
             user_id=supervisor.id,
             faculty_id=faculty.id,
             first_name="Rui",

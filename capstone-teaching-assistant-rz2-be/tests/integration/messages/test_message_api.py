@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
@@ -8,15 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.db_models import (
     Conversation,
-    File,
-    FileProcessingStatus,
     Message,
-    MessageFile,
     MessageRole,
     MessageStatus,
 )
-from app.common.limits import MAX_FILE_IDS_PER_CHAT_CONTEXT, MAX_MESSAGE_CONTENT_LENGTH
-from tests.conftest import DEV_SUPERVISOR_ID
+from app.common.limits import MAX_MESSAGE_CONTENT_LENGTH
+from tests.conftest import DEV_SEMESTER_ID, DEV_SUPERVISOR_ID
 
 
 class FakeChatProvider:
@@ -48,7 +45,9 @@ class FakeEmbeddingProvider:
 async def test_first_message_persists_generated_conversation_title(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="New conversation")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="New conversation"
+    )
     session.add(conversation)
     await session.commit()
 
@@ -56,7 +55,6 @@ async def test_first_message_persists_generated_conversation_title(
         f"/api/v1/conversations/{conversation.id}/messages",
         json={
             "content": "A first question long enough to verify title truncation is persisted",
-            "file_ids": [],
         },
     )
     await session.refresh(conversation)
@@ -70,13 +68,15 @@ async def test_first_message_persists_generated_conversation_title(
 async def test_first_message_preserves_custom_conversation_title(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
 
     response = await client.post(
         f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "This question must not replace the custom title.", "file_ids": []},
+        json={"content": "This question must not replace the custom title."},
     )
     await session.refresh(conversation)
 
@@ -93,13 +93,15 @@ async def test_chat_message_stream_and_retry(
     monkeypatch.setattr(
         "app.modules.messages.message_service.OllamaEmbeddingProvider", FakeEmbeddingProvider
     )
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
 
     create_response = await client.post(
         f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "What if a student misses meetings?", "file_ids": []},
+        json={"content": "What if a student misses meetings?"},
     )
 
     assert create_response.status_code == 201
@@ -130,59 +132,18 @@ async def test_chat_message_stream_and_retry(
 
 
 @pytest.mark.asyncio
-async def test_create_message_rejects_soft_deleted_file(
-    client: AsyncClient, session: AsyncSession
-) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
-    file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
-        original_filename="deleted.txt",
-        stored_filename="deleted.txt",
-        storage_base_url="http://localhost:9000/capstone-files/",
-        storage_path="supervisors/dev/files/deleted.txt",
-        mime_type="text/plain",
-        file_size_bytes=64,
-        processing_status=FileProcessingStatus.READY,
-    )
-    session.add_all([conversation, file])
-    await session.flush()
-    file.deleted_at = conversation.created_at
-    await session.commit()
-
-    response = await client.post(
-        f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "Use this file", "file_ids": [str(file.id)]},
-    )
-
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "RESOURCE_NOT_FOUND"
-
-
-@pytest.mark.asyncio
-async def test_create_message_rejects_too_many_file_ids(client: AsyncClient) -> None:
-    response = await client.post(
-        f"/api/v1/conversations/{uuid4()}/messages",
-        json={
-            "content": "Use these files.",
-            "file_ids": [str(uuid4()) for _ in range(MAX_FILE_IDS_PER_CHAT_CONTEXT + 1)],
-        },
-    )
-
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
-
-
-@pytest.mark.asyncio
 async def test_create_message_rejects_overlong_content(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
 
     response = await client.post(
         f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "a" * (MAX_MESSAGE_CONTENT_LENGTH + 1), "file_ids": []},
+        json={"content": "a" * (MAX_MESSAGE_CONTENT_LENGTH + 1)},
     )
 
     messages = list(await session.scalars(select(Message)))
@@ -195,13 +156,15 @@ async def test_create_message_rejects_overlong_content(
 async def test_create_message_rejects_unknown_fields(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
 
     response = await client.post(
         f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "Valid question.", "file_ids": [], "unexpected": "ignored?"},
+        json={"content": "Valid question.", "unexpected": "ignored?"},
     )
 
     messages = list(await session.scalars(select(Message)))
@@ -214,13 +177,15 @@ async def test_create_message_rejects_unknown_fields(
 async def test_create_message_rejects_whitespace_only_content(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.commit()
 
     response = await client.post(
         f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "   \n\t", "file_ids": []},
+        json={"content": "   \n\t"},
     )
 
     messages = list(await session.scalars(select(Message)))
@@ -230,52 +195,12 @@ async def test_create_message_rejects_whitespace_only_content(
 
 
 @pytest.mark.asyncio
-async def test_create_message_rejects_too_many_preselected_files(
-    client: AsyncClient, session: AsyncSession
-) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
-    files = [
-        File(
-            supervisor_id=DEV_SUPERVISOR_ID,
-            original_filename=f"Guide {index}.txt",
-            stored_filename=f"guide-{index}.txt",
-            storage_base_url="http://localhost:9000/capstone-files/",
-            storage_path=f"supervisors/dev/files/guide-{index}.txt",
-            mime_type="text/plain",
-            file_size_bytes=64,
-            processing_status=FileProcessingStatus.READY,
-        )
-        for index in range(MAX_FILE_IDS_PER_CHAT_CONTEXT + 1)
-    ]
-    session.add(conversation)
-    session.add_all(files)
-    await session.flush()
-    session.add_all(
-        [
-            MessageFile(
-                conversation_id=conversation.id,
-                message_id=None,
-                file_id=file.id,
-            )
-            for file in files
-        ]
-    )
-    await session.commit()
-
-    response = await client.post(
-        f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "Use selected files.", "file_ids": []},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "FILE_LIMIT_EXCEEDED"
-
-
-@pytest.mark.asyncio
 async def test_retry_rejects_generating_assistant_message(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
+    conversation = Conversation(
+        semester_id=DEV_SEMESTER_ID, supervisor_id=DEV_SUPERVISOR_ID, title="Team issues"
+    )
     session.add(conversation)
     await session.flush()
     assistant_message = Message(
@@ -298,110 +223,6 @@ async def test_retry_rejects_generating_assistant_message(
 
 
 @pytest.mark.asyncio
-async def test_create_message_ignores_stale_conversation_file_link(
-    client: AsyncClient, session: AsyncSession
-) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
-    file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
-        original_filename="deleted.txt",
-        stored_filename="deleted.txt",
-        storage_base_url="http://localhost:9000/capstone-files/",
-        storage_path="supervisors/dev/files/deleted.txt",
-        mime_type="text/plain",
-        file_size_bytes=64,
-        processing_status=FileProcessingStatus.READY,
-    )
-    session.add_all([conversation, file])
-    await session.flush()
-    session.add(
-        MessageFile(
-            conversation_id=conversation.id,
-            message_id=None,
-            file_id=file.id,
-        )
-    )
-    file.deleted_at = conversation.created_at
-    await session.commit()
-
-    response = await client.post(
-        f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "No active files should be used.", "file_ids": []},
-    )
-
-    assert response.status_code == 201
-
-
-@pytest.mark.asyncio
-async def test_create_message_does_not_inherit_prior_message_files(
-    client: AsyncClient, session: AsyncSession
-) -> None:
-    conversation = Conversation(supervisor_id=DEV_SUPERVISOR_ID, title="Team issues")
-    prior_file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
-        original_filename="Prior.txt",
-        stored_filename="prior.txt",
-        storage_base_url="http://localhost:9000/capstone-files/",
-        storage_path="supervisors/dev/files/prior.txt",
-        mime_type="text/plain",
-        file_size_bytes=64,
-        processing_status=FileProcessingStatus.READY,
-    )
-    preselected_file = File(
-        supervisor_id=DEV_SUPERVISOR_ID,
-        original_filename="Preselected.txt",
-        stored_filename="preselected.txt",
-        storage_base_url="http://localhost:9000/capstone-files/",
-        storage_path="supervisors/dev/files/preselected.txt",
-        mime_type="text/plain",
-        file_size_bytes=64,
-        processing_status=FileProcessingStatus.READY,
-    )
-    session.add_all([conversation, prior_file, preselected_file])
-    await session.flush()
-    prior_message = Message(
-        conversation_id=conversation.id,
-        role=MessageRole.USER,
-        content="Prior question",
-        status=MessageStatus.COMPLETED,
-        sequence_no=1,
-    )
-    session.add(prior_message)
-    await session.flush()
-    session.add_all(
-        [
-            MessageFile(
-                conversation_id=conversation.id,
-                message_id=prior_message.id,
-                file_id=prior_file.id,
-            ),
-            MessageFile(
-                conversation_id=conversation.id,
-                message_id=None,
-                file_id=preselected_file.id,
-            ),
-        ]
-    )
-    await session.commit()
-
-    response = await client.post(
-        f"/api/v1/conversations/{conversation.id}/messages",
-        json={"content": "Use only preselected files.", "file_ids": []},
-    )
-
-    user_message_id = UUID(response.json()["user_message"]["id"])
-    attached_file_ids = list(
-        await session.scalars(
-            select(MessageFile.file_id)
-            .where(MessageFile.message_id == user_message_id)
-            .order_by(MessageFile.file_id)
-        )
-    )
-    assert response.status_code == 201
-    assert attached_file_ids == [preselected_file.id]
-
-
-@pytest.mark.asyncio
 async def test_openapi_documents_message_stream_as_sse(client: AsyncClient) -> None:
     response = await client.get("/openapi.json")
 
@@ -410,3 +231,6 @@ async def test_openapi_documents_message_stream_as_sse(client: AsyncClient) -> N
         "responses"
     ]["200"]
     assert "text/event-stream" in stream_response["content"]
+
+
+pytestmark = pytest.mark.usefixtures("assigned_profiles")

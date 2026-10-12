@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET_KEY = "local-dev-change-me-with-at-least-32-bytes"
@@ -41,12 +41,30 @@ class Settings(BaseSettings):
     ]
     local_admin_username: str = "admin"
     local_admin_password: str = Field(default="AdminPassword123!", repr=False)
+    email_backend: Literal["smtp", "console"] = "console"
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = Field(default=587, gt=0)
+    smtp_username: str = ""
+    smtp_password: str = Field(default="", repr=False)
+    smtp_from_email: str = ""
+    smtp_from_name: str = "Capstone Teaching Assistant"
+    smtp_timeout_seconds: float = Field(default=15, gt=0)
+    frontend_login_url: str = "http://localhost:3000"
+    password_reset_cooldown_seconds: int = Field(default=300, ge=0)
+    password_reset_ip_limit: int = Field(default=10, gt=0)
+    password_reset_ip_window_seconds: int = Field(default=600, gt=0)
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("smtp_password")
+    @classmethod
+    def strip_app_password_spaces(cls, value: str) -> str:
+        # Google displays app passwords in groups of four separated by spaces.
+        return "".join(value.split())
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> Settings:
@@ -64,6 +82,9 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if "*" in self.cors_allowed_origins:
             msg = "CORS_ALLOWED_ORIGINS must list explicit origins because credentials are enabled."
+            raise ValueError(msg)
+        if self.email_backend == "smtp" and not (self.smtp_username and self.smtp_password):
+            msg = "SMTP_USERNAME and SMTP_PASSWORD are required when EMAIL_BACKEND=smtp."
             raise ValueError(msg)
         return self
 

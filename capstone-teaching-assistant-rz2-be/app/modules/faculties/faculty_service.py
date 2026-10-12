@@ -120,7 +120,13 @@ class FacultyService:
     def _duplicate_error(self, exc: IntegrityError) -> ApiError:
         message = str(exc.orig).lower()
         if "code" in message:
-            return ApiError("DUPLICATE_FACULTY_CODE", "Faculty code already exists.", status.HTTP_409_CONFLICT)
+            return ApiError(
+                "DUPLICATE_FACULTY_CODE", "Faculty code already exists.", status.HTTP_409_CONFLICT
+            )
         if "name" in message:
-            return ApiError("DUPLICATE_FACULTY_NAME", "Faculty name already exists.", status.HTTP_409_CONFLICT)
-        return ApiError("FACULTY_CONFLICT", "Faculty conflicts with existing data.", status.HTTP_409_CONFLICT)
+            return ApiError(
+                "DUPLICATE_FACULTY_NAME", "Faculty name already exists.", status.HTTP_409_CONFLICT
+            )
+        return ApiError(
+            "FACULTY_CONFLICT", "Faculty conflicts with existing data.", status.HTTP_409_CONFLICT
+        )

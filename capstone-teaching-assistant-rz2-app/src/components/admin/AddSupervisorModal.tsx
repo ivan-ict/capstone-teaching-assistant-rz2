@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, UserPlus, ShieldAlert } from "lucide-react";
+import { X, UserPlus, ShieldAlert, Mail } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 
 interface AddSupervisorModalProps {
@@ -11,21 +11,20 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
     isOpen,
     onClose,
 }) => {
-    const { faculties, addSupervisor, supervisors } = useApp();
+    const { faculties, addSupervisor, supervisors, semesters, setActiveAdminView } = useApp();
 
     const [formData, setFormData] = useState({
         username: "",
-        password: "",
         firstName: "",
         lastName: "",
         email: "",
         phone: "",
-        teachingYear: "2026",
-        teachingSemester: "Semester 1",
+        semesterId: "",
         faculty: faculties[0]?.name || "Computer Science",
     });
 
     const [error, setError] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     if (!isOpen) return null;
 
@@ -34,19 +33,13 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
         const cleanUsername = formData.username.trim();
         if (
             !cleanUsername ||
-            !formData.password.trim() ||
             !formData.firstName.trim() ||
             !formData.lastName.trim() ||
-            !formData.email.trim()
+            !formData.email.trim() || !formData.semesterId
         ) {
             setError("Please fill in all required fields.");
             return;
         }
-        if (formData.password.length < 9) {
-            setError("Password must be at least 9 characters long.");
-            return;
-        }
-
         // Check if username already exists
         const isDuplicateUsername = supervisors.some(
             (s) => s.username.toLowerCase() === cleanUsername.toLowerCase(),
@@ -65,17 +58,17 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
             return;
         }
 
+        setIsSubmitting(true);
         const result = await addSupervisor({
             username: cleanUsername,
-            password: formData.password.trim(),
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             phone: formData.phone.trim() || "+61 400 000 000",
-            teachingYear: formData.teachingYear,
-            teachingSemester: formData.teachingSemester,
+            semesterId: formData.semesterId,
             faculty: formData.faculty,
         });
+        setIsSubmitting(false);
         if (!result.success) {
             setError(result.message || "Could not create supervisor.");
             return;
@@ -124,9 +117,17 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
                         </div>
                     )}
 
+                    <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs flex items-center gap-2">
+                        <Mail className="w-4 h-4 shrink-0" />
+                        <span>
+                            A password will be generated automatically and emailed to the
+                            supervisor together with their username.
+                        </span>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {/* Username */}
-                        <div>
+                        <div className="sm:col-span-2">
                             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                                 Username *
                             </label>
@@ -140,27 +141,6 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
                                     setFormData({
                                         ...formData,
                                         username: e.target.value,
-                                    })
-                                }
-                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            />
-                        </div>
-
-                        {/* Password */}
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Password *
-                            </label>
-                            <input
-                                id="add-supervisor-password"
-                                type="password"
-                                required
-                                placeholder="Temporary password (minimum 9)"
-                                value={formData.password}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        password: e.target.value,
                                     })
                                 }
                                 className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
@@ -250,53 +230,13 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
                             />
                         </div>
 
-                        {/* Teaching Year (Selection) */}
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Teaching Year *
-                            </label>
-                            <select
-                                id="add-supervisor-teaching-year"
-                                value={formData.teachingYear}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        teachingYear: e.target.value,
-                                    })
-                                }
-                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            >
-                                <option value="2030">2030</option>
-                                <option value="2029">2029</option>
-                                <option value="2028">2028</option>
-                                <option value="2027">2027</option>
-                                <option value="2026">2026</option>
-                                <option value="2025">2025</option>
-                                <option value="2024">2024</option>
-                                <option value="2023">2023</option>
-                                <option value="2022">2022</option>
+                        <div className="sm:col-span-2">
+                            <label htmlFor="add-supervisor-semester" className="block text-xs font-semibold mb-1">Semester *</label>
+                            <select id="add-supervisor-semester" required value={formData.semesterId} onChange={e => setFormData({ ...formData, semesterId: e.target.value })} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
+                                <option value="">Select a semester</option>
+                                {semesters.map(semester => <option key={semester.id} value={semester.id}>{semester.name}</option>)}
                             </select>
-                        </div>
-
-                        {/* Teaching Semester (Selection) */}
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Teaching Semester *
-                            </label>
-                            <select
-                                id="add-supervisor-teaching-semester"
-                                value={formData.teachingSemester}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        teachingSemester: e.target.value,
-                                    })
-                                }
-                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            >
-                                <option value="Semester 1">Semester 1</option>
-                                <option value="Semester 2">Semester 2</option>
-                            </select>
+                            {!semesters.length && <p className="text-xs text-amber-600 mt-2">Create an active semester before adding supervisors. <button type="button" className="underline" onClick={() => { setActiveAdminView('semesters'); onClose(); }}>Manage semesters</button></p>}
                         </div>
                     </div>
 
@@ -336,10 +276,11 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
                         </button>
                         <button
                             id="submit-add-supervisor-btn"
+                            disabled={!semesters.length || isSubmitting}
                             type="submit"
-                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition"
+                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            Save Supervisor
+                            {isSubmitting ? "Creating & emailing..." : "Save Supervisor"}
                         </button>
                     </div>
                 </form>

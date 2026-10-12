@@ -1,16 +1,29 @@
+import logging
+
 from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.config import get_settings
 from app.common.db_models import AccountStatus
+from app.common.email import EmailDeliveryError, EmailSender, build_password_reset_email
 from app.common.errors import ApiError
+from app.common.rate_limit import password_reset_limiter
 from app.common.security import (
     create_access_token,
     decode_access_token_claims,
+    generate_password,
+    hash_password,
     token_digest,
     verify_password,
 )
-from app.modules.auth.auth_model import LoginResponseDTO
+from app.modules.auth.auth_model import ForgotPasswordResponseDTO, LoginResponseDTO
 from app.modules.auth.auth_repository import AuthRepository
+
+logger = logging.getLogger(__name__)
+
+FORGOT_PASSWORD_MESSAGE = (
+    "If an account matches the details provided, a new password has been sent to its email."
+)
 
 
 class AuthService:
@@ -50,3 +63,43 @@ class AuthService:
             )
         await self.repository.revoke_token(token_digest(token), claims.expires_at)
         await self.session.commit()
+
+    async def forgot_password(
+        self, identifier: str, client_ip: str | None, email_sender: EmailSender
+    ) -> ForgotPasswordResponseDTO:
+        # Every outcome returns the same response so callers cannot discover which accounts exist.
+        response = ForgotPasswordResponseDTO(message=FORGOT_PASSWORD_MESSAGE)
+        settings = get_settings()
+        if client_ip and not await password_reset_limiter.allow(
+            f"ip:{client_ip}",
+            settings.password_reset_ip_limit,
+            settings.password_reset_ip_window_seconds,
+        ):
+            return response
+        row = await self.repository.get_supervisor_by_identifier(identifier)
+        if row is None:
+            return response
+        user, profile = row
+        if user.status != AccountStatus.ACTIVE:
+            return response
+        if not await password_reset_limiter.allow(
+            f"user:{user.id}", 1, settings.password_reset_cooldown_seconds
+        ):
+            return response
+        password = generate_password()
+        user.password_hash = hash_password(password)
+        message = build_password_reset_email(
+            to=profile.email,
+            first_name=profile.first_name,
+            username=user.username,
+            password=password,
+            login_url=settings.frontend_login_url,
+        )
+        try:
+            await email_sender.send(message)
+        except EmailDeliveryError:
+            logger.warning("Password reset email failed for user %s; password unchanged.", user.id)
+            await self.session.rollback()
+            return response
+        await self.session.commit()
+        return response

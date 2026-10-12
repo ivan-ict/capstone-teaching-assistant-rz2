@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -11,6 +12,14 @@ from app.common.config import get_settings
 
 password_hash = PasswordHash.recommended()
 MAX_PASSWORD_LENGTH = 128
+GENERATED_PASSWORD_LENGTH = 14
+# Ambiguous characters (0/O, 1/l/I) are excluded so emailed passwords are easy to type.
+_PASSWORD_CHARACTER_CLASSES = (
+    "abcdefghijkmnopqrstuvwxyz",
+    "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "23456789",
+    "!@#$%^&*-_=+?",
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +30,17 @@ class AccessTokenClaims:
 
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
+
+
+def generate_password(length: int = GENERATED_PASSWORD_LENGTH) -> str:
+    if length < len(_PASSWORD_CHARACTER_CLASSES):
+        msg = "Generated password length is too short."
+        raise ValueError(msg)
+    alphabet = "".join(_PASSWORD_CHARACTER_CLASSES)
+    characters = [secrets.choice(group) for group in _PASSWORD_CHARACTER_CLASSES]
+    characters += [secrets.choice(alphabet) for _ in range(length - len(characters))]
+    secrets.SystemRandom().shuffle(characters)
+    return "".join(characters)
 
 
 def verify_password(password: str, hashed_password: str) -> bool:

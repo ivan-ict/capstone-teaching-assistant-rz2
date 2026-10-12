@@ -3,8 +3,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.common.db_models import AccountStatus, TeachingSemester, UserRole
+from app.common.db_models import AccountStatus, UserRole
 from app.common.security import MAX_PASSWORD_LENGTH
+from app.modules.semesters.semester_model import SemesterDTO
 
 
 class AccountFacultyDTO(BaseModel):
@@ -19,8 +20,7 @@ class AccountProfileDTO(BaseModel):
     email: str
     phone: str | None
     faculty: AccountFacultyDTO
-    teaching_year: int | None
-    teaching_semester: TeachingSemester | None
+    semester: SemesterDTO
 
 
 class AccountDTO(BaseModel):

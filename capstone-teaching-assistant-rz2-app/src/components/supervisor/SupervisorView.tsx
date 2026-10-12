@@ -1,26 +1,32 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { ChatArea } from './ChatArea';
-import { LibraryView } from './LibraryView';
-import { ProjectModal } from './ProjectModal';
-import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { SearchConversationModal } from './SearchConversationModal';
 
 export const SupervisorView: React.FC = () => {
-  const { activeSupervisorView } = useApp();
-
+  const { currentUser } = useApp();
+  const semester = currentUser?.semester;
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-3.5rem)] overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors">
-      {activeSupervisorView === 'chat' && <ChatArea />}
-      {activeSupervisorView === 'library' && (
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <LibraryView />
-        </div>
-      )}
-
-      {/* Global Supervisor Modals */}
-      <ProjectModal />
-      <ProjectSettingsModal />
+    <div
+      key={`${semester?.id}:${semester?.deleted_at}`}
+      className="flex-1 flex flex-col min-h-0 bg-slate-50 dark:bg-slate-950"
+    >
+      <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 text-sm">
+        <strong>{semester?.name || 'No semester assigned'}</strong>
+        {semester?.deleted_at ? (
+          <p role="status" className="text-amber-700 dark:text-amber-400">
+            Archived semester — conversation history is read-only.
+          </p>
+        ) : (
+          semester?.ready_file_count === 0 && (
+            <p role="status" className="text-slate-500">
+              Semester documents are unavailable. Chat can use your conversation
+              history and general knowledge.
+            </p>
+          )
+        )}
+      </div>
+      <ChatArea />
       <SearchConversationModal />
     </div>
   );

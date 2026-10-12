@@ -19,19 +19,20 @@ from app.common.ai import (
     OllamaEmbeddingProvider,
     OllamaImageDescriptionProvider,
 )
+from app.common.auth import CurrentUser
 from app.common.config import Settings, get_settings
 from app.common.db_models import File, FileProcessingStatus
 from app.common.errors import ApiError, ErrorDetailDTO, NotFoundError
 from app.common.object_storage import ObjectStorageClient
 from app.common.text_processing import chunk_text
 from app.modules.files.file_model import (
-    FileBulkDeleteResultDTO,
     FileContentDTO,
     FileDetailDTO,
     FileDTO,
     FileListDTO,
 )
 from app.modules.files.file_repository import FileRepository
+from app.modules.semesters.semester_service import SemesterService
 
 STORED_FILENAME_MAX_LENGTH = 255
 FILE_METADATA_MAX_LENGTH = 255
@@ -86,11 +87,13 @@ class FileService:
 
     async def upload_file(
         self,
-        supervisor_id: UUID,
+        semester_id: UUID,
+        uploaded_by: UUID,
         original_filename: str,
         content: bytes,
         mime_type: str | None,
     ) -> FileDTO:
+        await SemesterService(self.session).get(semester_id, writable=True)
         inferred_mime_type = (
             mime_type or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
         )
@@ -114,7 +117,7 @@ class FileService:
 
         file_id = uuid4()
         stored_filename = self._stored_filename(file_id, original_filename)
-        storage_path = f"supervisors/{supervisor_id}/files/{file_id}/{stored_filename}"
+        storage_path = f"semesters/{semester_id}/files/{file_id}/{stored_filename}"
         storage_base_url = (
             f"{self.settings.rustfs_endpoint_url.rstrip('/')}/{self.settings.rustfs_bucket_name}/"
         )
@@ -136,7 +139,8 @@ class FileService:
         try:
             file = await self.repository.create(
                 file_id=file_id,
-                supervisor_id=supervisor_id,
+                semester_id=semester_id,
+                uploaded_by=uploaded_by,
                 original_filename=original_filename,
                 stored_filename=stored_filename,
                 storage_base_url=storage_base_url,
@@ -183,7 +187,7 @@ class FileService:
             logger.exception("File processing failed during upload stage: %s", processing_error)
             file = await self._mark_processing_failed(
                 file_id,
-                supervisor_id,
+                semester_id,
                 processing_error,
             )
             raise ApiError(
@@ -196,14 +200,14 @@ class FileService:
 
     async def list_files(
         self,
-        supervisor_id: UUID,
+        semester_id: UUID,
         search: str | None,
         processing_status: FileProcessingStatus | None,
         page: int,
         page_size: int,
     ) -> FileListDTO:
-        files, total = await self.repository.list_for_supervisor(
-            supervisor_id, search, processing_status, page, page_size
+        files, total = await self.repository.list_for_semester(
+            semester_id, search, processing_status, page, page_size
         )
         return FileListDTO(
             items=[FileDTO.model_validate(file) for file in files],
@@ -212,39 +216,18 @@ class FileService:
             total=total,
         )
 
-    async def get_file(self, supervisor_id: UUID, file_id: UUID) -> FileDetailDTO:
-        file = await self._get_file(supervisor_id, file_id)
+    async def get_file(self, semester_id: UUID, file_id: UUID) -> FileDetailDTO:
+        file = await self._get_file(semester_id, file_id)
         return FileDetailDTO.model_validate(file)
 
-    async def delete_file(self, supervisor_id: UUID, file_id: UUID) -> None:
-        file = await self._get_file(supervisor_id, file_id)
+    async def delete_file(self, semester_id: UUID, file_id: UUID) -> None:
+        await SemesterService(self.session).get(semester_id, writable=True)
+        file = await self._get_file(semester_id, file_id)
         await self.repository.delete(file)
-        try:
-            await asyncio.to_thread(self.storage.delete_object, file.storage_path)
-        except Exception as exc:
-            await self.session.rollback()
-            raise ApiError(
-                "OBJECT_STORAGE_DELETE_FAILED",
-                "Object storage delete failed.",
-                status.HTTP_502_BAD_GATEWAY,
-            ) from exc
         await self.session.commit()
 
-    async def bulk_delete_files(
-        self, supervisor_id: UUID, file_ids: list[UUID]
-    ) -> FileBulkDeleteResultDTO:
-        deleted_ids: list[UUID] = []
-        failed_ids: list[UUID] = []
-        for file_id in list(dict.fromkeys(file_ids)):
-            try:
-                await self.delete_file(supervisor_id, file_id)
-                deleted_ids.append(file_id)
-            except Exception:
-                failed_ids.append(file_id)
-        return FileBulkDeleteResultDTO(deleted_ids=deleted_ids, failed_ids=failed_ids)
-
-    async def get_content(self, supervisor_id: UUID, file_id: UUID) -> FileContentDTO:
-        file = await self._get_file(supervisor_id, file_id)
+    async def get_content(self, semester_id: UUID, file_id: UUID) -> FileContentDTO:
+        file = await self._get_file(semester_id, file_id)
         if not self._is_supported_text_file(file.original_filename, file.mime_type):
             raise ApiError(
                 "UNSUPPORTED_FILE_TYPE",
@@ -274,8 +257,8 @@ class FileService:
             content=text,
         )
 
-    async def download_file(self, supervisor_id: UUID, file_id: UUID) -> tuple[File, bytes]:
-        file = await self._get_file(supervisor_id, file_id)
+    async def download_file(self, semester_id: UUID, file_id: UUID) -> tuple[File, bytes]:
+        file = await self._get_file(semester_id, file_id)
         try:
             content = await asyncio.to_thread(self.storage.download_bytes, file.storage_path)
         except Exception as exc:
@@ -286,11 +269,17 @@ class FileService:
             ) from exc
         return file, content
 
-    async def _get_file(self, supervisor_id: UUID, file_id: UUID) -> File:
-        file = await self.repository.get_for_supervisor(file_id, supervisor_id)
+    async def _get_file(self, semester_id: UUID, file_id: UUID) -> File:
+        file = await self.repository.get_for_semester(file_id, semester_id)
         if file is None:
             raise NotFoundError("File not found.")
         return file
+
+    async def authorize_file(self, user: CurrentUser, file_id: UUID) -> UUID:
+        file = await self.repository.accessible_file(file_id, user.id, user.role)
+        if file is None:
+            raise NotFoundError("File not found or no longer available.")
+        return file.semester_id
 
     def _is_supported_text_file(self, original_filename: str, mime_type: str) -> bool:
         return mime_type.startswith("text/") or original_filename.lower().endswith((".txt", ".md"))
@@ -400,12 +389,12 @@ class FileService:
     async def _mark_processing_failed(
         self,
         file_id: UUID,
-        supervisor_id: UUID,
+        semester_id: UUID,
         processing_error: str,
     ) -> File:
         await self.session.rollback()
         try:
-            file = await self.repository.get_for_supervisor(file_id, supervisor_id)
+            file = await self.repository.get_for_semester(file_id, semester_id)
             if file is None:
                 raise ApiError(
                     "DATABASE_WRITE_FAILED",

@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -15,10 +15,9 @@ from app.common.db_models import (
     File,
     FileProcessingStatus,
     Message,
-    MessageFile,
     MessageRole,
     MessageStatus,
-    Project,
+    SupervisorProfile,
 )
 
 
@@ -26,10 +25,8 @@ from app.common.db_models import (
 class MessageGenerationContext:
     assistant_message: Message
     user_message: Message | None
-    project_instructions: str | None
-    file_ids: list[UUID]
     supervisor_id: UUID
-    project_id: UUID | None
+    semester_id: UUID
     prepared_at: datetime
 
 
@@ -39,40 +36,27 @@ class MessageRepository:
 
     async def lock_message_creation_context(
         self, conversation_id: UUID, supervisor_id: UUID
-    ) -> tuple[Conversation, list[UUID], int] | None:
-        next_sequence = (
-            select(func.coalesce(func.max(Message.sequence_no), 0) + 1)
-            .where(Message.conversation_id == Conversation.id)
-            .correlate(Conversation)
-            .scalar_subquery()
-        )
-        query = (
-            select(Conversation, File.id, next_sequence)
-            .outerjoin(
-                MessageFile,
-                and_(
-                    MessageFile.conversation_id == Conversation.id,
-                    MessageFile.message_id.is_(None),
-                    MessageFile.deleted_at.is_(None),
-                ),
-            )
-            .outerjoin(
-                File,
-                and_(File.id == MessageFile.file_id, File.deleted_at.is_(None)),
-            )
+    ) -> tuple[Conversation, int] | None:
+        conversation = await self.session.scalar(
+            select(Conversation)
+            .join(SupervisorProfile, SupervisorProfile.user_id == Conversation.supervisor_id)
             .where(
                 Conversation.id == conversation_id,
                 Conversation.supervisor_id == supervisor_id,
+                Conversation.semester_id == SupervisorProfile.semester_id,
                 Conversation.deleted_at.is_(None),
+                SupervisorProfile.deleted_at.is_(None),
             )
             .with_for_update(of=Conversation)
         )
-        rows = (await self.session.execute(query)).all()
-        if not rows:
+        if conversation is None:
             return None
-        conversation = rows[0][0]
-        preselected_file_ids = list(dict.fromkeys(row[1] for row in rows if row[1] is not None))
-        return conversation, preselected_file_ids, rows[0][2]
+        sequence = await self.session.scalar(
+            select(func.coalesce(func.max(Message.sequence_no), 0) + 1).where(
+                Message.conversation_id == conversation_id
+            )
+        )
+        return conversation, sequence or 1
 
     async def get_message_for_supervisor(
         self, message_id: UUID, supervisor_id: UUID
@@ -80,7 +64,10 @@ class MessageRepository:
         query = (
             select(Message)
             .join(Conversation, Conversation.id == Message.conversation_id)
+            .join(SupervisorProfile, SupervisorProfile.user_id == Conversation.supervisor_id)
             .where(
+                SupervisorProfile.semester_id == Conversation.semester_id,
+                SupervisorProfile.deleted_at.is_(None),
                 Message.id == message_id,
                 Message.deleted_at.is_(None),
                 Conversation.supervisor_id == supervisor_id,
@@ -107,62 +94,35 @@ class MessageRepository:
             .scalar_subquery()
         )
         query = (
-            select(Message, previous_user, Project.instructions, MessageFile.file_id, Project.id)
+            select(Message, previous_user, Conversation.semester_id)
             .join(Conversation, Conversation.id == Message.conversation_id)
+            .join(SupervisorProfile, SupervisorProfile.user_id == Conversation.supervisor_id)
             .outerjoin(previous_user, previous_user.id == previous_user_id)
-            .outerjoin(
-                Project,
-                and_(
-                    Project.id == Conversation.project_id,
-                    Project.supervisor_id == supervisor_id,
-                    Project.deleted_at.is_(None),
-                ),
-            )
-            .outerjoin(
-                MessageFile,
-                and_(
-                    MessageFile.message_id == previous_user.id,
-                    MessageFile.deleted_at.is_(None),
-                ),
-            )
             .where(
                 Message.id == message_id,
                 Message.deleted_at.is_(None),
                 Conversation.supervisor_id == supervisor_id,
                 Conversation.deleted_at.is_(None),
+                SupervisorProfile.deleted_at.is_(None),
+                SupervisorProfile.semester_id == Conversation.semester_id,
             )
         )
-        rows = (await self.session.execute(query)).all()
-        if not rows:
+        row = (await self.session.execute(query)).one_or_none()
+        if row is None:
             return None
         return MessageGenerationContext(
-            assistant_message=rows[0][0],
-            user_message=rows[0][1],
-            project_instructions=rows[0][2],
-            file_ids=list(dict.fromkeys(row[3] for row in rows if row[3] is not None)),
+            assistant_message=row[0],
+            user_message=row[1],
+            semester_id=row[2],
             supervisor_id=supervisor_id,
-            project_id=rows[0][4],
             prepared_at=datetime.now(UTC),
         )
-
-    async def list_files_by_ids_for_supervisor(
-        self, file_ids: list[UUID], supervisor_id: UUID
-    ) -> list[File]:
-        query = (
-            select(File)
-            .where(File.id.in_(file_ids))
-            .where(File.supervisor_id == supervisor_id)
-            .where(File.deleted_at.is_(None))
-            .order_by(File.original_filename.asc())
-        )
-        return list(await self.session.scalars(query))
 
     async def add_message_pair(
         self,
         conversation_id: UUID,
         content: str,
         user_sequence: int,
-        file_ids: list[UUID],
     ) -> tuple[Message, Message]:
         user_message = Message(
             conversation_id=conversation_id,
@@ -180,14 +140,6 @@ class MessageRepository:
         )
         self.session.add_all([user_message, assistant_message])
         await self.session.flush()
-        self.session.add_all(
-            MessageFile(
-                conversation_id=conversation_id,
-                message_id=user_message.id,
-                file_id=file_id,
-            )
-            for file_id in file_ids
-        )
         return user_message, assistant_message
 
     async def list_history_before(self, message: Message, limit: int = 12) -> list[Message]:
@@ -208,11 +160,8 @@ class MessageRepository:
         return messages
 
     def _conversation_scope(self, context: MessageGenerationContext) -> ColumnElement[bool]:
-        membership = Conversation.id == context.assistant_message.conversation_id
-        if context.project_id is not None:
-            membership = or_(membership, Conversation.project_id == context.project_id)
         return and_(
-            membership,
+            Conversation.semester_id == context.semester_id,
             Conversation.supervisor_id == context.supervisor_id,
             Conversation.deleted_at.is_(None),
         )
@@ -220,38 +169,20 @@ class MessageRepository:
     async def retrieve_chunks(
         self,
         context: MessageGenerationContext,
-        prioritized_file_ids: list[UUID],
         query_embedding: list[float],
         limit: int,
     ) -> list[tuple[DocumentChunk, File]]:
-        conversation_file_exists = (
-            select(MessageFile.id)
-            .join(Conversation, Conversation.id == MessageFile.conversation_id)
-            .where(
-                self._conversation_scope(context),
-                MessageFile.file_id == DocumentChunk.file_id,
-                MessageFile.deleted_at.is_(None),
-            )
-            .correlate(DocumentChunk)
-            .exists()
-        )
         query = (
             select(DocumentChunk, File)
             .join(File, File.id == DocumentChunk.file_id)
-            .where(conversation_file_exists)
-            .where(DocumentChunk.deleted_at.is_(None))
-            .where(File.processing_status == FileProcessingStatus.READY)
-            .where(File.deleted_at.is_(None))
-            .where(File.supervisor_id == context.supervisor_id)
+            .where(
+                File.semester_id == context.semester_id,
+                DocumentChunk.deleted_at.is_(None),
+                File.deleted_at.is_(None),
+                File.processing_status == FileProcessingStatus.READY,
+            )
             .limit(limit)
         )
-        if prioritized_file_ids:
-            query = query.order_by(
-                case(
-                    (DocumentChunk.file_id.in_(prioritized_file_ids), 0),
-                    else_=1,
-                )
-            )
         bind = self.session.get_bind()
         if bind.dialect.name == "sqlite":
             query = query.order_by(DocumentChunk.chunk_index.asc())

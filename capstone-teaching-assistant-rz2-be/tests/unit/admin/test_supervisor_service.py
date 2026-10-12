@@ -8,7 +8,7 @@ class FakeDiag:
         self.constraint_name = constraint_name
 
 
-class FakeOrig:
+class FakeOrig(Exception):
     def __init__(self, constraint_name: str) -> None:
         self.diag = FakeDiag(constraint_name)
 
