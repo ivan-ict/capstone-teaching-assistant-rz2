@@ -33,7 +33,7 @@ export const LoginPage: React.FC = () => {
         }
 
         setIsLoading(true);
-        const result = await login(username.trim(), password);
+        const result = await login(username.trim().toLowerCase(), password);
         setIsLoading(false);
         if (!result.success)
             setErrorMessage(result.message || "Invalid username or password.");
@@ -131,21 +131,9 @@ export const LoginPage: React.FC = () => {
 
                             {/* Password input */}
                             <div className="space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                        Password
-                                    </label>
-                                    <button
-                                        id="forgot-password-link"
-                                        type="button"
-                                        onClick={() =>
-                                            setIsForgotPasswordOpen(true)
-                                        }
-                                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition cursor-pointer"
-                                    >
-                                        Forgot password?
-                                    </button>
-                                </div>
+                                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                    Password
+                                </label>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                                         <Lock className="w-4 h-4" />
@@ -179,6 +167,20 @@ export const LoginPage: React.FC = () => {
                                     </>
                                 )}
                             </button>
+
+                            {/* Forgot password sits after submit so Tab goes username -> password -> sign in */}
+                            <div className="flex justify-end">
+                                <button
+                                    id="forgot-password-link"
+                                    type="button"
+                                    onClick={() =>
+                                        setIsForgotPasswordOpen(true)
+                                    }
+                                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition cursor-pointer"
+                                >
+                                    Forgot password?
+                                </button>
+                            </div>
                         </form>
                     </div>
 

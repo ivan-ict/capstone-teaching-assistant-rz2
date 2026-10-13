@@ -36,3 +36,12 @@ it('shows request errors', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Send new password' }));
   await waitFor(() => expect(screen.getByText('Network error')).toBeTruthy());
 });
+
+it('shows an error and no confirmation when the account does not exist', async () => {
+  app.requestPasswordReset.mockResolvedValue({ success: false, message: 'No account matches that username or email.' });
+  render(<ForgotPasswordModal initialIdentifier="ghost" onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Send new password' }));
+  await waitFor(() => expect(screen.getByText('No account matches that username or email.')).toBeTruthy());
+  expect(screen.queryByText(/has been sent/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Send new password' })).toBeTruthy();
+});

@@ -30,7 +30,7 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const cleanUsername = formData.username.trim();
+        const cleanUsername = formData.username.trim().toLowerCase();
         if (
             !cleanUsername ||
             !formData.firstName.trim() ||
@@ -140,7 +140,7 @@ export const AddSupervisorModal: React.FC<AddSupervisorModalProps> = ({
                                 onChange={(e) =>
                                     setFormData({
                                         ...formData,
-                                        username: e.target.value,
+                                        username: e.target.value.toLowerCase(),
                                     })
                                 }
                                 className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

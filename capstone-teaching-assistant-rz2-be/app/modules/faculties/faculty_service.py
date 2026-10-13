@@ -36,8 +36,12 @@ class FacultyService:
         include_inactive: bool,
         page: int,
         page_size: int,
+        sort_by: str = "name",
+        sort_order: str = "asc",
     ) -> AdminFacultyListDTO:
-        rows, total = await self.repository.list_admin(search, include_inactive, page, page_size)
+        rows, total = await self.repository.list_admin(
+            search, include_inactive, page, page_size, sort_by, sort_order
+        )
         return AdminFacultyListDTO(
             items=[
                 AdminFacultyDTO(

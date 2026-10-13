@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.db_models import Faculty, SupervisorProfile
+from app.common.sorting import sort_clauses
 
 
 class FacultyRepository:
@@ -25,6 +26,8 @@ class FacultyRepository:
         include_inactive: bool,
         page: int,
         page_size: int,
+        sort_by: str = "name",
+        sort_order: str = "asc",
     ) -> tuple[list[tuple[Faculty, int]], int]:
         filters = [Faculty.deleted_at.is_(None)]
         if not include_inactive:
@@ -38,8 +41,16 @@ class FacultyRepository:
             await self.session.scalar(select(func.count()).select_from(Faculty).where(*filters))
             or 0
         )
+        supervisor_count = func.count(SupervisorProfile.id)
+        sort_columns = {
+            "name": Faculty.name,
+            "code": Faculty.code,
+            "status": Faculty.is_active,
+            "supervisor_count": supervisor_count,
+            "created_at": Faculty.created_at,
+        }
         query = (
-            select(Faculty, func.count(SupervisorProfile.id))
+            select(Faculty, supervisor_count)
             .outerjoin(
                 SupervisorProfile,
                 (SupervisorProfile.faculty_id == Faculty.id)
@@ -47,7 +58,7 @@ class FacultyRepository:
             )
             .where(*filters)
             .group_by(Faculty.id)
-            .order_by(Faculty.name.asc())
+            .order_by(*sort_clauses(sort_columns[sort_by], sort_order, Faculty.id))
             .offset((page - 1) * page_size)
             .limit(page_size)
         )

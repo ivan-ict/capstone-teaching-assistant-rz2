@@ -8,6 +8,8 @@ import { Button } from '../common/ui/Button';
 import { Badge } from '../common/ui/Badge';
 import { SearchInput } from '../common/ui/Card';
 import { Pagination } from '../common/ui/Pagination';
+import { SortableHeader } from '../common/ui/SortableHeader';
+import { useTableSort } from '../../hooks/useTableSort';
 import { errorMessage, thClass } from './semesterShared';
 
 export function SemesterSupervisors({
@@ -34,12 +36,13 @@ export function SemesterSupervisors({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
+  const { sort, toggleSort } = useTableSort({ by: 'username', order: 'asc' }, () => setPage(1));
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .semesterSupervisors(semester.id, candidates, search, page)
+      .semesterSupervisors(semester.id, candidates, search, page, sort)
       .then((data) => {
         if (!cancelled) setData(data);
       })
@@ -52,7 +55,7 @@ export function SemesterSupervisors({
     return () => {
       cancelled = true;
     };
-  }, [api, semester.id, candidates, search, page, revision]);
+  }, [api, semester.id, candidates, search, page, sort, revision]);
 
   const switchMode = (next: boolean) => {
     setCandidates(next);
@@ -160,16 +163,16 @@ export function SemesterSupervisors({
           </p>
         )}
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
-          {loading ? (
+          {loading && !data.items.length ? (
             <p className="p-6 text-sm text-slate-500">Loading supervisors…</p>
           ) : (
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/60">
                 <tr>
                   {candidates && <th className="pl-4 py-3 w-8" />}
-                  <th className={thClass}>Supervisor</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Current semester</th>
+                  <SortableHeader label="Supervisor" field="username" sort={sort} onSort={toggleSort} className={thClass} />
+                  <SortableHeader label="Status" field="status" sort={sort} onSort={toggleSort} className={thClass} />
+                  <SortableHeader label="Current semester" field="semester" sort={sort} onSort={toggleSort} className={thClass} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

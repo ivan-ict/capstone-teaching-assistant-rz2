@@ -27,6 +27,8 @@ import { formatDate, formatDateTime, getInitials } from '../../utils/formatters'
 import { AddSupervisorModal } from './AddSupervisorModal';
 import { EditSupervisorModal } from './EditSupervisorModal';
 import { ResetPasswordModal } from './ResetPasswordModal';
+import { Pagination } from '../common/ui/Pagination';
+import { CLIENT_PAGE_SIZE, useClientPage } from '../../hooks/useClientPage';
 
 type SortField = 'fullName' | 'username' | 'faculty' | 'semester' | 'email' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
@@ -191,6 +193,11 @@ export const SupervisorManagement: React.FC = () => {
       return sortOrder === 'asc' ? cmp : -cmp;
     });
   }, [filteredSupervisors, sortField, sortOrder]);
+
+  const { page, setPage, pageItems } = useClientPage(
+    sortedSupervisors,
+    JSON.stringify([activeTab, searchQuery, searchScope, selectedFaculties, selectedYears, selectedSemesters, sortField, sortOrder]),
+  );
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -650,7 +657,7 @@ export const SupervisorManagement: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                sortedSupervisors.map((s) => {
+                pageItems.map((s) => {
                   const initial = getInitials(s.firstName || s.fullName || 'S');
                   return (
                     <tr 
@@ -770,6 +777,7 @@ export const SupervisorManagement: React.FC = () => {
           </table>
         </div>
       </div>
+      <Pagination page={page} total={sortedSupervisors.length} pageSize={CLIENT_PAGE_SIZE} change={setPage} />
 
       {/* Add Supervisor Modal */}
       {isAddModalOpen && (

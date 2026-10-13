@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Download,
@@ -24,6 +24,8 @@ import { Badge } from '../common/ui/Badge';
 import { SearchInput } from '../common/ui/Card';
 import { ConfirmDialog } from '../common/ui/ConfirmDialog';
 import { Pagination } from '../common/ui/Pagination';
+import { SortableHeader } from '../common/ui/SortableHeader';
+import { useTableSort } from '../../hooks/useTableSort';
 import { errorMessage, thClass } from './semesterShared';
 
 const statusBadge = (status?: AttachedFile['processingStatus']) => {
@@ -53,7 +55,7 @@ export function SemesterFiles({
 }: {
   semester: Semester;
   close: () => void;
-  changed: () => Promise<void>;
+  changed: (full?: boolean) => Promise<void>;
 }) {
   const { api, downloadFile, previewFile } = useApp();
   const readOnly = Boolean(semester.deleted_at);
@@ -65,6 +67,8 @@ export function SemesterFiles({
   });
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const { sort, toggleSort } = useTableSort({ by: 'created_at', order: 'desc' }, () => setPage(1));
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,11 +80,20 @@ export function SemesterFiles({
   const [confirmClose, setConfirmClose] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // Debounce the server-side search so each keystroke does not refetch.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .semesterFiles(semester.id, page)
+      .semesterFiles(semester.id, page, { search: query, sort })
       .then((data) => {
         if (!cancelled) setData(data);
       })
@@ -93,7 +106,7 @@ export function SemesterFiles({
     return () => {
       cancelled = true;
     };
-  }, [api, semester.id, page, revision]);
+  }, [api, semester.id, page, query, sort, revision]);
 
   const uploading = uploads.some(
     (item) => item.status === 'queued' || item.status === 'uploading'
@@ -112,12 +125,7 @@ export function SemesterFiles({
     return () => window.clearInterval(timer);
   }, [hasProcessing, uploading]);
 
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return term
-      ? data.items.filter((file) => file.name.toLowerCase().includes(term))
-      : data.items;
-  }, [data.items, search]);
+  const visible = data.items;
   const selectedFiles = data.items.filter((file) => selected.includes(file.id));
   const allVisibleSelected =
     visible.length > 0 && visible.every((file) => selected.includes(file.id));
@@ -152,11 +160,10 @@ export function SemesterFiles({
           failures.push(`${item.file.name}: ${message}`);
           setUploadStatus(item.key, 'failed', message);
         }
-        // Show each new row (and its final status) as soon as it is processed.
-        setPage(1);
+        // Refresh the current page in place and update the semester's file count.
         setRevision((v) => v + 1);
+        void changed(false);
       }
-      setSelected([]);
       await changed();
     } catch (error) {
       failures.push(errorMessage(error));
@@ -167,7 +174,14 @@ export function SemesterFiles({
   };
 
   const upload = (files: File[]) => {
-    const items = files.map((file, index) => ({
+    // Images are the slowest to process, so upload them after documents.
+    const isImageFile = (file: File) =>
+      file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
+    const ordered = [
+      ...files.filter((file) => !isImageFile(file)),
+      ...files.filter(isImageFile)
+    ];
+    const items = ordered.map((file, index) => ({
       key: `${Date.now()}-${index}-${file.name}`,
       file,
       status: 'queued' as const
@@ -259,6 +273,7 @@ export function SemesterFiles({
             </div>
             <Button
               variant="primary"
+              className="min-w-[9.5rem] justify-center"
               icon={<Upload size={16} />}
               disabled={busy}
               onClick={() => fileInput.current?.click()}
@@ -378,7 +393,7 @@ export function SemesterFiles({
           <SearchInput
             icon={<Search size={16} />}
             aria-label="Search files"
-            placeholder="Search files on this page…"
+            placeholder="Search files…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1"
@@ -420,7 +435,8 @@ export function SemesterFiles({
         )}
 
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
-          {loading ? (
+          {/* Only the first load shows a placeholder; refreshes keep the table in place. */}
+          {loading && !data.items.length && !query ? (
             <p className="p-6 text-sm text-slate-500">Loading files…</p>
           ) : (
             <table className="w-full min-w-[640px] table-fixed text-left text-sm">
@@ -439,10 +455,10 @@ export function SemesterFiles({
                       className="accent-blue-600"
                     />
                   </th>
-                  <th className={thClass}>Name</th>
-                  <th className={`${thClass} w-24`}>Size</th>
-                  <th className={`${thClass} w-28`}>Status</th>
-                  <th className={`${thClass} w-32`}>Uploaded</th>
+                  <SortableHeader label="Name" field="name" sort={sort} onSort={toggleSort} className={thClass} />
+                  <SortableHeader label="Size" field="size" sort={sort} onSort={toggleSort} className={`${thClass} w-24`} />
+                  <SortableHeader label="Status" field="status" sort={sort} onSort={toggleSort} className={`${thClass} w-28`} />
+                  <SortableHeader label="Uploaded" field="created_at" sort={sort} onSort={toggleSort} className={`${thClass} w-32`} />
                   <th className={`${thClass} w-32 text-right`}>Actions</th>
                 </tr>
               </thead>
@@ -531,7 +547,7 @@ export function SemesterFiles({
           )}
           {!loading && !visible.length && (
             <p className="py-10 text-center text-sm italic text-slate-500 dark:text-slate-400">
-              {data.items.length ? 'No files match your search.' : 'No files uploaded.'}
+              {query ? 'No files match your search.' : 'No files uploaded.'}
             </p>
           )}
         </div>

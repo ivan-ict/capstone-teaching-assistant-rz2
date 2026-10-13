@@ -208,9 +208,11 @@ class FileService:
         processing_status: FileProcessingStatus | None,
         page: int,
         page_size: int,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
     ) -> FileListDTO:
         files, total = await self.repository.list_for_semester(
-            semester_id, search, processing_status, page, page_size
+            semester_id, search, processing_status, page, page_size, sort_by, sort_order
         )
         return FileListDTO(
             items=[FileDTO.model_validate(file) for file in files],

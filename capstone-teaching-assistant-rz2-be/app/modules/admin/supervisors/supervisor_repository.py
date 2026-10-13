@@ -26,7 +26,7 @@ class SupervisorRepository:
         return await self.session.scalar(query) is not None
 
     async def username_exists(self, username: str) -> bool:
-        query = select(User.id).where(User.username == username, User.deleted_at.is_(None))
+        query = select(User.id).where(User.username == username.lower(), User.deleted_at.is_(None))
         return await self.session.scalar(query) is not None
 
     async def email_exists(self, email: str, exclude_user_id: UUID | None = None) -> bool:

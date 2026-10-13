@@ -10,7 +10,8 @@ export function formatBytes(bytes?: number | null, decimals = 1): string {
 export function formatDate(isoString?: string | null): string {
   if (!isoString) return '—';
   try {
-    const d = new Date(isoString);
+    // A bare date (YYYY-MM-DD) is parsed as UTC by default; read it as local midnight instead.
+    const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(isoString) ? `${isoString}T00:00:00` : isoString);
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleDateString('en-US', {
       month: 'short',

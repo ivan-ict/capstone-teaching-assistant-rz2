@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.common.db_models import AccountStatus, UserRole
 from app.common.security import MAX_PASSWORD_LENGTH
 
-Username = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+Username = Annotated[
+    str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=1, max_length=100)
+]
 
 
 class LoginRequestDTO(BaseModel):

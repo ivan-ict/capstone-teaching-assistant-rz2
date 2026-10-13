@@ -21,9 +21,7 @@ from app.modules.auth.auth_repository import AuthRepository
 
 logger = logging.getLogger(__name__)
 
-FORGOT_PASSWORD_MESSAGE = (
-    "If an account matches the details provided, a new password has been sent to its email."
-)
+FORGOT_PASSWORD_MESSAGE = "A new password has been sent to the email on file."
 
 
 class AuthService:
@@ -67,25 +65,40 @@ class AuthService:
     async def forgot_password(
         self, identifier: str, client_ip: str | None, email_sender: EmailSender
     ) -> ForgotPasswordResponseDTO:
-        # Every outcome returns the same response so callers cannot discover which accounts exist.
-        response = ForgotPasswordResponseDTO(message=FORGOT_PASSWORD_MESSAGE)
         settings = get_settings()
+        # The per-IP limit runs before the lookup so account existence cannot be probed in bulk.
         if client_ip and not await password_reset_limiter.allow(
             f"ip:{client_ip}",
             settings.password_reset_ip_limit,
             settings.password_reset_ip_window_seconds,
         ):
-            return response
+            raise ApiError(
+                "TOO_MANY_REQUESTS",
+                "Too many password reset requests. Please try again later.",
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         row = await self.repository.get_supervisor_by_identifier(identifier)
         if row is None:
-            return response
+            raise ApiError(
+                "ACCOUNT_NOT_FOUND",
+                "No account matches that username or email.",
+                status.HTTP_404_NOT_FOUND,
+            )
         user, profile = row
         if user.status != AccountStatus.ACTIVE:
-            return response
+            raise ApiError(
+                "ACCOUNT_INACTIVE",
+                "This account is inactive. Please contact an administrator.",
+                status.HTTP_403_FORBIDDEN,
+            )
         if not await password_reset_limiter.allow(
             f"user:{user.id}", 1, settings.password_reset_cooldown_seconds
         ):
-            return response
+            raise ApiError(
+                "RESET_COOLDOWN",
+                "A new password was sent recently. Please check your email or try again later.",
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         password = generate_password()
         user.password_hash = hash_password(password)
         message = build_password_reset_email(
@@ -100,6 +113,10 @@ class AuthService:
         except EmailDeliveryError:
             logger.warning("Password reset email failed for user %s; password unchanged.", user.id)
             await self.session.rollback()
-            return response
+            raise ApiError(
+                "EMAIL_DELIVERY_FAILED",
+                "We could not send the email. Please try again later.",
+                status.HTTP_502_BAD_GATEWAY,
+            ) from None
         await self.session.commit()
-        return response
+        return ForgotPasswordResponseDTO(message=FORGOT_PASSWORD_MESSAGE)

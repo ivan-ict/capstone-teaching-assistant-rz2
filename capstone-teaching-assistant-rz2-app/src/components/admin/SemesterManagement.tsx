@@ -16,6 +16,9 @@ import { Badge } from '../common/ui/Badge';
 import { Card, PageHeader, SearchInput } from '../common/ui/Card';
 import { ConfirmDialog } from '../common/ui/ConfirmDialog';
 import { Pagination } from '../common/ui/Pagination';
+import { SortableHeader } from '../common/ui/SortableHeader';
+import { useTableSort } from '../../hooks/useTableSort';
+import { formatDate } from '../../utils/formatters';
 import { SemesterFiles } from './SemesterFiles';
 import { SemesterSupervisors } from './SemesterSupervisors';
 import { errorMessage, inputClass, labelClass, thClass } from './semesterShared';
@@ -23,7 +26,7 @@ import { errorMessage, inputClass, labelClass, thClass } from './semesterShared'
 const formatPeriod = (semester: Semester) => {
   const { start_date: start, end_date: end } = semester;
   if (!start && !end) return '—';
-  return `${start || '…'} – ${end || '…'}`;
+  return `${start ? formatDate(start) : '…'} – ${end ? formatDate(end) : '…'}`;
 };
 
 function SemesterForm({
@@ -185,6 +188,7 @@ export const SemesterManagement: React.FC = () => {
   const [archiveError, setArchiveError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const { sort, toggleSort } = useTableSort(null, () => setPage(1));
   const [dialog, setDialog] = useState<{
     kind: 'edit' | 'files' | 'supervisors' | 'archive';
     semester?: Semester;
@@ -193,15 +197,16 @@ export const SemesterManagement: React.FC = () => {
     setDialog(null);
     setArchiveError('');
   }, []);
-  const changed = async () => {
+  // `full` also reloads shared admin data; per-file upload updates only need the counts here.
+  const changed = async (full = true) => {
     setRevision((v) => v + 1);
-    await refreshAdminData();
+    if (full) await refreshAdminData();
   };
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .listSemesters(archived, search, page)
+      .listSemesters(archived, search, page, sort)
       .then((data) => {
         if (!cancelled) setData(data);
       })
@@ -214,7 +219,7 @@ export const SemesterManagement: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [api, archived, search, page, revision]);
+  }, [api, archived, search, page, sort, revision]);
 
   return (
     <div className="p-4 sm:p-6 md:p-8 space-y-6 max-w-7xl mx-auto">
@@ -270,20 +275,17 @@ export const SemesterManagement: React.FC = () => {
       )}
 
       <Card className="overflow-x-auto">
-        {loading ? (
+        {/* Only the first load shows a placeholder; refreshes keep the table in place. */}
+        {loading && !data.items.length ? (
           <p className="p-6 text-sm text-slate-500">Loading semesters…</p>
         ) : (
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
               <tr>
-                {['Semester', 'Period', 'Status', 'Actions'].map((label) => (
-                  <th
-                    key={label}
-                    className={`${thClass} ${label === 'Actions' ? 'text-right' : ''}`}
-                  >
-                    {label}
-                  </th>
-                ))}
+                <SortableHeader label="Semester" field="name" sort={sort} onSort={toggleSort} className={thClass} />
+                <SortableHeader label="Period" field="start_date" sort={sort} onSort={toggleSort} className={thClass} />
+                <th className={thClass}>Status</th>
+                <th className={`${thClass} text-right`}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

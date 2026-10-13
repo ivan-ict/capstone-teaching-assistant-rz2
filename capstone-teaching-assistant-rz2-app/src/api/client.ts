@@ -15,6 +15,20 @@ export class ApiClientError extends Error {
 }
 
 type AccountStatus = 'ACTIVE' | 'INACTIVE';
+
+export type SortOrder = 'asc' | 'desc';
+export interface Sort {
+  by: string;
+  order: SortOrder;
+}
+
+const withSort = (params: URLSearchParams, sort?: Sort | null) => {
+  if (sort) {
+    params.set('sort_by', sort.by);
+    params.set('sort_order', sort.order);
+  }
+  return params;
+};
 type UserRoleDTO = 'ADMIN' | 'SUPERVISOR';
 
 interface LoginResponseDTO {
@@ -204,10 +218,14 @@ export class ApiClient {
   }
 
   async listAdminFaculties(search = ''): Promise<Faculty[]> {
-    const searchParams = new URLSearchParams({ page: '1', page_size: '100', include_inactive: 'true' });
-    if (search) searchParams.set('search', search);
-    const response = await this.request<{ items: FacultyDTO[] }>(`/admin/faculties?${searchParams}`);
-    return response.items.map(mapFaculty);
+    const items: FacultyDTO[] = [];
+    for (let page = 1; ; page++) {
+      const searchParams = new URLSearchParams({ page: String(page), page_size: '100', include_inactive: 'true' });
+      if (search) searchParams.set('search', search);
+      const response = await this.request<Page<FacultyDTO>>(`/admin/faculties?${searchParams}`);
+      items.push(...response.items);
+      if (items.length >= response.total || !response.items.length) return items.map(mapFaculty);
+    }
   }
 
   async createFaculty(data: Pick<Faculty, 'name' | 'code'>): Promise<Faculty> {
@@ -234,11 +252,16 @@ export class ApiClient {
   }
 
   async listSupervisors(params: { search?: string; status?: AccountStatus } = {}): Promise<User[]> {
-    const searchParams = new URLSearchParams({ page: '1', page_size: '100' });
-    if (params.search) searchParams.set('search', params.search);
-    if (params.status) searchParams.set('status', params.status);
-    const response = await this.request<{ items: SupervisorListItemDTO[] }>(`/admin/supervisors?${searchParams}`);
-    return response.items.map(mapSupervisorListItem);
+    // Fetch every page: the admin table filters, sorts and pages this list on the client.
+    const items: SupervisorListItemDTO[] = [];
+    for (let page = 1; ; page++) {
+      const searchParams = new URLSearchParams({ page: String(page), page_size: '100' });
+      if (params.search) searchParams.set('search', params.search);
+      if (params.status) searchParams.set('status', params.status);
+      const response = await this.request<Page<SupervisorListItemDTO>>(`/admin/supervisors?${searchParams}`);
+      items.push(...response.items);
+      if (items.length >= response.total || !response.items.length) return items.map(mapSupervisorListItem);
+    }
   }
 
   async getSupervisor(id: string): Promise<User> {
@@ -295,8 +318,9 @@ export class ApiClient {
     return this.request(`/admin/supervisors/${id}`, { method: 'DELETE' });
   }
 
-  listSemesters(archived = false, search = '', page = 1): Promise<Page<Semester>> {
-    return this.request(`/admin/semesters?${new URLSearchParams({ archived: String(archived), search, page: String(page), page_size: '20' })}`);
+  listSemesters(archived = false, search = '', page = 1, sort?: Sort | null): Promise<Page<Semester>> {
+    const params = new URLSearchParams({ archived: String(archived), search, page: String(page), page_size: '20' });
+    return this.request(`/admin/semesters?${withSort(params, sort)}`);
   }
 
   async activeSemesters(): Promise<Semester[]> {
@@ -317,16 +341,19 @@ export class ApiClient {
     return this.request(`/admin/semesters/${id}`, { method: 'DELETE' });
   }
 
-  semesterSupervisors(id: string, candidates = false, search = '', page = 1): Promise<Page<SemesterSupervisor>> {
-    return this.request(`/admin/semesters/${id}/${candidates ? 'supervisor-candidates' : 'supervisors'}?${new URLSearchParams({ search, page: String(page), page_size: '20' })}`);
+  semesterSupervisors(id: string, candidates = false, search = '', page = 1, sort?: Sort | null): Promise<Page<SemesterSupervisor>> {
+    const params = withSort(new URLSearchParams({ search, page: String(page), page_size: '20' }), sort);
+    return this.request(`/admin/semesters/${id}/${candidates ? 'supervisor-candidates' : 'supervisors'}?${params}`);
   }
 
   assignSupervisors(id: string, supervisorIds: string[]): Promise<{ moved_count: number }> {
     return this.request(`/admin/semesters/${id}/supervisors`, { method: 'POST', body: JSON.stringify({ supervisor_ids: supervisorIds }) });
   }
 
-  async semesterFiles(id: string, page = 1): Promise<Page<AttachedFile>> {
-    const result = await this.request<Page<FileDTO>>(`/admin/semesters/${id}/files?page=${page}&page_size=20`);
+  async semesterFiles(id: string, page = 1, options: { search?: string; sort?: Sort | null } = {}): Promise<Page<AttachedFile>> {
+    const params = withSort(new URLSearchParams({ page: String(page), page_size: '20' }), options.sort);
+    if (options.search) params.set('search', options.search);
+    const result = await this.request<Page<FileDTO>>(`/admin/semesters/${id}/files?${params}`);
     return { ...result, items: result.items.map(mapFile) };
   }
 

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.auth import CurrentUser, get_current_admin, get_current_user
 from app.common.database import get_db_session
+from app.common.sorting import SortOrder
 from app.modules.faculties.faculty_model import (
     AdminFacultyDTO,
     AdminFacultyListDTO,
@@ -39,8 +40,14 @@ async def list_admin_faculties(
     include_inactive: Annotated[bool, Query()] = True,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    sort_by: Annotated[
+        Literal["name", "code", "status", "supervisor_count", "created_at"], Query()
+    ] = "name",
+    sort_order: SortOrder = "asc",
 ):
-    return await FacultyService(session).list_admin(search, include_inactive, page, page_size)
+    return await FacultyService(session).list_admin(
+        search, include_inactive, page, page_size, sort_by, sort_order
+    )
 
 
 @admin_faculty_router.post(

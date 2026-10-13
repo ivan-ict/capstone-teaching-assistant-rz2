@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
@@ -9,6 +9,7 @@ from app.common.config import get_settings
 from app.common.database import get_db_session
 from app.common.db_models import FileProcessingStatus
 from app.common.errors import ApiError
+from app.common.sorting import SortOrder
 from app.modules.files.file_model import FileDTO, FileListDTO
 from app.modules.files.file_service import FileService
 from app.modules.semesters.semester_model import (
@@ -28,6 +29,11 @@ Session = Annotated[AsyncSession, Depends(get_db_session)]
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
 Search = Annotated[str | None, Query(max_length=100)]
+SemesterSort = Annotated[
+    Literal["name", "year", "start_date", "file_count", "supervisor_count"] | None, Query()
+]
+SupervisorSort = Annotated[Literal["username", "name", "status", "semester"], Query()]
+FileSort = Annotated[Literal["name", "type", "size", "status", "created_at"], Query()]
 
 
 @semester_router.get("", response_model=SemesterListDTO)
@@ -38,8 +44,12 @@ async def list_semesters(
     archived: bool = False,
     page: Page = 1,
     page_size: PageSize = 20,
+    sort_by: SemesterSort = None,
+    sort_order: SortOrder = "asc",
 ):
-    return await SemesterService(session).list_semesters(search, archived, page, page_size)
+    return await SemesterService(session).list_semesters(
+        search, archived, page, page_size, sort_by, sort_order
+    )
 
 
 @semester_router.post("", response_model=SemesterDTO, status_code=201)
@@ -74,8 +84,12 @@ async def list_supervisors(
     search: Search = None,
     page: Page = 1,
     page_size: PageSize = 20,
+    sort_by: SupervisorSort = "username",
+    sort_order: SortOrder = "asc",
 ):
-    return await SemesterService(session).supervisors(semester_id, False, search, page, page_size)
+    return await SemesterService(session).supervisors(
+        semester_id, False, search, page, page_size, sort_by, sort_order
+    )
 
 
 @semester_router.get(
@@ -88,8 +102,12 @@ async def list_candidates(
     search: Search = None,
     page: Page = 1,
     page_size: PageSize = 20,
+    sort_by: SupervisorSort = "username",
+    sort_order: SortOrder = "asc",
 ):
-    return await SemesterService(session).supervisors(semester_id, True, search, page, page_size)
+    return await SemesterService(session).supervisors(
+        semester_id, True, search, page, page_size, sort_by, sort_order
+    )
 
 
 @semester_router.post("/{semester_id}/supervisors")
@@ -108,10 +126,12 @@ async def list_files(
     processing_status: FileProcessingStatus | None = None,
     page: Page = 1,
     page_size: PageSize = 20,
+    sort_by: FileSort = "created_at",
+    sort_order: SortOrder = "desc",
 ):
     await SemesterService(session).get(semester_id)
     return await FileService(session).list_files(
-        semester_id, search, processing_status, page, page_size
+        semester_id, search, processing_status, page, page_size, sort_by, sort_order
     )
 
 

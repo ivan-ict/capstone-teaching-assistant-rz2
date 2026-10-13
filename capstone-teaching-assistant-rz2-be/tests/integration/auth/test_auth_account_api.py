@@ -122,7 +122,7 @@ async def test_successful_login_purges_expired_revoked_tokens(
 
 
 @pytest.mark.asyncio
-async def test_login_strips_username_without_stripping_password(
+async def test_login_strips_and_lowercases_username_without_stripping_password(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     supervisor = User(
@@ -136,7 +136,7 @@ async def test_login_strips_username_without_stripping_password(
 
     response = await client.post(
         "/api/v1/auth/login",
-        json={"username": "  rzhou\t", "password": " Password123 "},
+        json={"username": "  RZhou\t", "password": " Password123 "},
     )
 
     assert response.status_code == 200

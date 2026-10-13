@@ -331,3 +331,46 @@ async def test_create_supervisor_rejects_values_outside_database_bounds(
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_create_supervisor_lowercases_username(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    faculty = Faculty(code="SCI", name="School of Science", is_active=True)
+    admin = User(
+        username="admin",
+        password_hash=hash_password("AdminPassword123!"),
+        role=UserRole.ADMIN,
+        status=AccountStatus.ACTIVE,
+    )
+    session.add_all([faculty, admin])
+    await session.commit()
+
+    login_response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "ADMIN", "password": "AdminPassword123!"},
+    )
+    assert login_response.status_code == 200
+    headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    def payload(username: str, email: str) -> dict[str, str]:
+        return {
+            "username": username,
+            "semester_id": str(DEV_SEMESTER_ID),
+            "first_name": "John",
+            "last_name": "Smith",
+            "email": email,
+            "faculty_id": str(faculty.id),
+        }
+
+    response = await client.post(
+        "/api/v1/admin/supervisors", headers=headers, json=payload("JSmith", "a@example.edu.au")
+    )
+    assert response.status_code == 201
+    assert response.json()["username"] == "jsmith"
+
+    duplicate = await client.post(
+        "/api/v1/admin/supervisors", headers=headers, json=payload("JSMITH", "b@example.edu.au")
+    )
+    assert duplicate.status_code == 409
