@@ -13,6 +13,7 @@ from app.common.db_models import (
     SupervisorProfile,
     UserRole,
 )
+from app.common.sorting import sort_clauses
 
 
 class FileRepository:
@@ -64,6 +65,8 @@ class FileRepository:
         processing_status: FileProcessingStatus | None,
         page: int,
         page_size: int,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
     ) -> tuple[list[File], int]:
         filters = [File.semester_id == semester_id, File.deleted_at.is_(None)]
         if search:
@@ -76,7 +79,19 @@ class FileRepository:
         items_query = (
             select(File)
             .where(*filters)
-            .order_by(File.created_at.desc())
+            .order_by(
+                *sort_clauses(
+                    {
+                        "name": File.original_filename,
+                        "type": File.mime_type,
+                        "size": File.file_size_bytes,
+                        "status": File.processing_status,
+                        "created_at": File.created_at,
+                    }[sort_by],
+                    sort_order,
+                    File.id,
+                )
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         )

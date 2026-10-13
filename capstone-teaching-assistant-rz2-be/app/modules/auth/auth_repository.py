@@ -13,7 +13,7 @@ class AuthRepository:
         self.session = session
 
     async def get_user_by_username(self, username: str) -> User | None:
-        query = select(User).where(User.username == username, User.deleted_at.is_(None))
+        query = select(User).where(User.username == username.lower(), User.deleted_at.is_(None))
         return await self.session.scalar(query)
 
     async def get_supervisor_by_identifier(
@@ -27,7 +27,7 @@ class AuthRepository:
                 User.deleted_at.is_(None),
                 SupervisorProfile.deleted_at.is_(None),
                 or_(
-                    User.username == identifier,
+                    User.username == identifier.lower(),
                     func.lower(SupervisorProfile.email) == identifier.lower(),
                 ),
             )

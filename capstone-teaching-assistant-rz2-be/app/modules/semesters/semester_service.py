@@ -51,9 +51,17 @@ class SemesterService:
         )
 
     async def list_semesters(
-        self, search: str | None, archived: bool, page: int, page_size: int
+        self,
+        search: str | None,
+        archived: bool,
+        page: int,
+        page_size: int,
+        sort_by: str | None = None,
+        sort_order: str = "asc",
     ) -> SemesterListDTO:
-        semesters, total = await self.repository.list_semesters(search, archived, page, page_size)
+        semesters, total = await self.repository.list_semesters(
+            search, archived, page, page_size, sort_by, sort_order
+        )
         return SemesterListDTO(
             items=[await self.detail(s) for s in semesters],
             total=total,
@@ -79,11 +87,18 @@ class SemesterService:
         await self.session.commit()
 
     async def supervisors(
-        self, semester_id: UUID, candidates: bool, search: str | None, page: int, page_size: int
+        self,
+        semester_id: UUID,
+        candidates: bool,
+        search: str | None,
+        page: int,
+        page_size: int,
+        sort_by: str = "username",
+        sort_order: str = "asc",
     ) -> SemesterSupervisorListDTO:
         await self.get(semester_id)
         rows, total = await self.repository.supervisors(
-            semester_id, candidates, search, page, page_size
+            semester_id, candidates, search, page, page_size, sort_by, sort_order
         )
         return SemesterSupervisorListDTO(
             items=[

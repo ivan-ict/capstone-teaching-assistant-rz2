@@ -51,7 +51,9 @@ async def login(client: AsyncClient, password: str) -> int:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("identifier", ["rzhou", "RZhou@Example.edu.au", "  rzhou@example.edu.au "])
+@pytest.mark.parametrize(
+    "identifier", ["rzhou", "RZhou", "RZhou@Example.edu.au", "  rzhou@example.edu.au "]
+)
 async def test_forgot_password_replaces_and_emails_password(
     client: AsyncClient,
     session: AsyncSession,
@@ -73,7 +75,7 @@ async def test_forgot_password_replaces_and_emails_password(
 
 
 @pytest.mark.asyncio
-async def test_forgot_password_gives_same_response_without_sending(
+async def test_forgot_password_reports_unknown_account_without_sending(
     client: AsyncClient, session: AsyncSession, email_sender: FakeEmailSender
 ) -> None:
     session.add(
@@ -88,21 +90,21 @@ async def test_forgot_password_gives_same_response_without_sending(
 
     for identifier in ("unknown-user", "nobody@example.edu.au", "admin"):
         response = await forgot(client, identifier)
-        assert response.status_code == 202
-        assert response.json()["message"] == FORGOT_PASSWORD_MESSAGE
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "ACCOUNT_NOT_FOUND"
 
     assert email_sender.sent == []
 
 
 @pytest.mark.asyncio
-async def test_forgot_password_ignores_inactive_supervisor(
+async def test_forgot_password_rejects_inactive_supervisor(
     client: AsyncClient, session: AsyncSession, email_sender: FakeEmailSender
 ) -> None:
     await add_supervisor(session, AccountStatus.INACTIVE)
 
     response = await forgot(client, "rzhou")
 
-    assert response.status_code == 202
+    assert response.status_code == 403
     assert email_sender.sent == []
 
 
@@ -115,7 +117,9 @@ async def test_forgot_password_cooldown_limits_repeat_requests(
     first = await forgot(client, "rzhou")
     second = await forgot(client, "rzhou@example.edu.au")
 
-    assert first.status_code == second.status_code == 202
+    assert first.status_code == 202
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "RESET_COOLDOWN"
     assert len(email_sender.sent) == 1
 
 
@@ -129,7 +133,7 @@ async def test_forgot_password_limits_requests_per_ip(
         await forgot(client, "unknown-user")
     response = await forgot(client, "rzhou")
 
-    assert response.status_code == 202
+    assert response.status_code == 429
     assert email_sender.sent == []
 
 
@@ -142,5 +146,5 @@ async def test_forgot_password_keeps_old_password_when_email_fails(
 
     response = await forgot(client, "rzhou")
 
-    assert response.status_code == 202
+    assert response.status_code == 502
     assert await login(client, "Password123") == 200

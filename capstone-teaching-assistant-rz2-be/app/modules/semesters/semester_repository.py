@@ -12,6 +12,7 @@ from app.common.db_models import (
     User,
     UserRole,
 )
+from app.common.sorting import sort_clauses
 
 
 class SemesterRepository:
@@ -76,7 +77,15 @@ class SemesterRepository:
         )
         return files, supervisors, ready
 
-    async def list_semesters(self, search: str | None, archived: bool, page: int, page_size: int):
+    async def list_semesters(
+        self,
+        search: str | None,
+        archived: bool,
+        page: int,
+        page_size: int,
+        sort_by: str | None = None,
+        sort_order: str = "asc",
+    ):
         query = select(Semester).where(
             Semester.deleted_at.is_not(None) if archived else Semester.deleted_at.is_(None)
         )
@@ -85,23 +94,57 @@ class SemesterRepository:
         total = await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         items = list(
             await self.session.scalars(
-                query.order_by(
-                    Semester.year.desc(),
-                    Semester.start_date.desc().nulls_last(),
-                    Semester.id,
-                )
+                query.order_by(*self._semester_order(sort_by, sort_order))
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
         )
         return items, total
 
+    @staticmethod
+    def _semester_order(sort_by: str | None, sort_order: str) -> list:
+        if sort_by is None:
+            return [Semester.year.desc(), Semester.start_date.desc().nulls_last(), Semester.id]
+        file_count = (
+            select(func.count())
+            .select_from(File)
+            .where(File.semester_id == Semester.id, File.deleted_at.is_(None))
+            .scalar_subquery()
+        )
+        supervisor_count = (
+            select(func.count())
+            .select_from(SupervisorProfile)
+            .join(User, User.id == SupervisorProfile.user_id)
+            .where(
+                SupervisorProfile.semester_id == Semester.id,
+                SupervisorProfile.deleted_at.is_(None),
+                User.deleted_at.is_(None),
+            )
+            .scalar_subquery()
+        )
+        columns = {
+            "name": Semester.name,
+            "year": Semester.year,
+            "start_date": Semester.start_date,
+            "file_count": file_count,
+            "supervisor_count": supervisor_count,
+        }
+        return sort_clauses(columns[sort_by], sort_order, Semester.id)
+
     async def supervisors(
-        self, semester_id: UUID, candidates: bool, search: str | None, page: int, page_size: int
+        self,
+        semester_id: UUID,
+        candidates: bool,
+        search: str | None,
+        page: int,
+        page_size: int,
+        sort_by: str = "username",
+        sort_order: str = "asc",
     ):
         query = (
             select(User, SupervisorProfile)
             .join(SupervisorProfile, SupervisorProfile.user_id == User.id)
+            .join(Semester, Semester.id == SupervisorProfile.semester_id)
             .where(
                 User.role == UserRole.SUPERVISOR,
                 User.deleted_at.is_(None),
@@ -125,7 +168,18 @@ class SemesterRepository:
         total = await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         rows = (
             await self.session.execute(
-                query.order_by(User.username, User.id)
+                query.order_by(
+                    *sort_clauses(
+                        {
+                            "username": User.username,
+                            "name": SupervisorProfile.last_name,
+                            "status": User.status,
+                            "semester": Semester.name,
+                        }[sort_by],
+                        sort_order,
+                        User.id,
+                    )
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )

@@ -140,3 +140,89 @@ it('shows per-file progress and refreshes the list after each upload', async () 
     expect(app.api.semesterFiles.mock.calls.length).toBeGreaterThanOrEqual(2)
   );
 });
+it('uploads documents before images', async () => {
+  app.api.uploadSemesterFile.mockResolvedValue({});
+  render(<SemesterManagement />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Manage files for 2026 S1' })
+  );
+  fireEvent.change(screen.getByLabelText('Upload semester files'), {
+    target: {
+      files: [
+        new File(['a'], 'a.png', { type: 'image/png' }),
+        new File(['b'], 'b.pdf', { type: 'application/pdf' }),
+        new File(['c'], 'c.jpg', { type: 'image/jpeg' }),
+        new File(['d'], 'd.md', { type: 'text/markdown' })
+      ]
+    }
+  });
+  await waitFor(() =>
+    expect(app.api.uploadSemesterFile).toHaveBeenCalledTimes(4)
+  );
+  expect(
+    app.api.uploadSemesterFile.mock.calls.map(([, file]) => file.name)
+  ).toEqual(['b.pdf', 'd.md', 'a.png', 'c.jpg']);
+});
+it('formats the semester period like other dates', async () => {
+  render(<SemesterManagement />);
+  expect(await screen.findByText('Jan 1, 2026 – Jun 30, 2026')).toBeTruthy();
+});
+it('sorts semesters on the server when a column header is clicked', async () => {
+  render(<SemesterManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Semester' }));
+  await waitFor(() =>
+    expect(app.api.listSemesters).toHaveBeenLastCalledWith(false, '', 1, {
+      by: 'name',
+      order: 'asc'
+    })
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Semester' }));
+  await waitFor(() =>
+    expect(app.api.listSemesters).toHaveBeenLastCalledWith(false, '', 1, {
+      by: 'name',
+      order: 'desc'
+    })
+  );
+});
+it('keeps the file table visible and refreshes counts while uploading', async () => {
+  app.api.semesterFiles.mockResolvedValue(
+    page([
+      {
+        id: 'f0',
+        name: 'existing.pdf',
+        type: 'application/pdf',
+        size: 10,
+        processingStatus: 'READY',
+        uploadedAt: '2026-01-02T00:00:00Z'
+      }
+    ])
+  );
+  let release: () => void = () => {};
+  app.api.uploadSemesterFile.mockImplementation(
+    () => new Promise((resolve) => (release = () => resolve({})))
+  );
+  render(<SemesterManagement />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Manage files for 2026 S1' })
+  );
+  expect(await screen.findByText('existing.pdf')).toBeTruthy();
+  const semesterCalls = app.api.listSemesters.mock.calls.length;
+  fireEvent.change(screen.getByLabelText('Upload semester files'), {
+    target: {
+      files: [
+        new File(['a'], 'a.md', { type: 'text/markdown' }),
+        new File(['b'], 'b.md', { type: 'text/markdown' })
+      ]
+    }
+  });
+  await waitFor(() => expect(app.api.uploadSemesterFile).toHaveBeenCalledTimes(1));
+  release();
+  await waitFor(() => expect(app.api.uploadSemesterFile).toHaveBeenCalledTimes(2));
+  // The semester list (and its file counts) refreshed after the first file, before the batch ended.
+  expect(app.api.listSemesters.mock.calls.length).toBeGreaterThan(semesterCalls);
+  expect(app.refreshAdminData).not.toHaveBeenCalled();
+  expect(screen.queryByText('Loading files…')).toBeNull();
+  expect(screen.getByText('existing.pdf')).toBeTruthy();
+  release();
+  await waitFor(() => expect(app.refreshAdminData).toHaveBeenCalledTimes(1));
+});

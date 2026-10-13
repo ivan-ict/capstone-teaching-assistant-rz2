@@ -18,13 +18,16 @@ from app.modules.semesters.semester_model import SemesterSummaryDTO
 SupervisorName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
 ]
+SupervisorUsername = Annotated[
+    str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=1, max_length=100)
+]
 SupervisorPhone = Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)]
 
 
 class SupervisorCreateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    username: SupervisorName
+    username: SupervisorUsername
     first_name: SupervisorName
     last_name: SupervisorName
     email: EmailStr = Field(max_length=320)

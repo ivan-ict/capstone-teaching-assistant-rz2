@@ -14,6 +14,12 @@ import {
 import { useApp } from '../../context/AppContext';
 import { Faculty } from '../../types';
 import { formatDate } from '../../utils/formatters';
+import { Pagination } from '../common/ui/Pagination';
+import { SortableHeader } from '../common/ui/SortableHeader';
+import { useTableSort } from '../../hooks/useTableSort';
+import { CLIENT_PAGE_SIZE, useClientPage } from '../../hooks/useClientPage';
+
+const facultyThClass = 'py-3.5 px-4';
 
 export const FacultyManagement: React.FC = () => {
   const { 
@@ -49,6 +55,21 @@ export const FacultyManagement: React.FC = () => {
     const q = searchQuery.toLowerCase().trim();
     return f.name.toLowerCase().includes(q);
   });
+
+  const { sort, toggleSort } = useTableSort({ by: 'name', order: 'asc' });
+  const sortedFaculties = [...filteredFaculties].sort((a, b) => {
+    const cmp =
+      sort?.by === 'supervisors'
+        ? a.totalSupervisorsCount - b.totalSupervisorsCount
+        : sort?.by === 'createdAt'
+          ? new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+          : a.name.localeCompare(b.name);
+    return sort?.order === 'desc' ? -cmp : cmp;
+  });
+  const { page, setPage, pageItems } = useClientPage(
+    sortedFaculties,
+    JSON.stringify([searchQuery, sort]),
+  );
 
   const handleOpenAdd = () => {
     setFormData({ name: '' });
@@ -152,9 +173,9 @@ export const FacultyManagement: React.FC = () => {
           <table id="faculty-management-table" className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
             <thead className="bg-slate-50/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[11px] select-none">
               <tr>
-                <th className="py-3.5 px-4">Faculty Name</th>
-                <th className="py-3.5 px-4">Supervisors</th>
-                <th className="py-3.5 px-4">Created Date</th>
+                <SortableHeader label="Faculty Name" field="name" sort={sort} onSort={toggleSort} className={facultyThClass} />
+                <SortableHeader label="Supervisors" field="supervisors" sort={sort} onSort={toggleSort} className={facultyThClass} />
+                <SortableHeader label="Created Date" field="createdAt" sort={sort} onSort={toggleSort} className={facultyThClass} />
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -166,7 +187,7 @@ export const FacultyManagement: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredFaculties.map((f) => (
+                pageItems.map((f) => (
                   <tr key={f.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition">
                     <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
                       {f.name}
@@ -227,6 +248,7 @@ export const FacultyManagement: React.FC = () => {
           </table>
         </div>
       </div>
+      <Pagination page={page} total={sortedFaculties.length} pageSize={CLIENT_PAGE_SIZE} change={setPage} />
 
       {/* Add/Edit Modal */}
       {modalMode && (
